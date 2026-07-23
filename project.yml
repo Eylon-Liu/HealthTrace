@@ -1,0 +1,44 @@
+name: HealthRecords
+options:
+  bundleIdPrefix: com.personal
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  HealthRecords:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources: [HealthRecords]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.HealthRecords
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: HealthRecords/Info.plist
+      properties:
+        CFBundleDisplayName: HealthTrace
+        UIRequiresFullScreen: false
+        NSPhotoLibraryUsageDescription: 用于上传医疗报告图片
+        NSPhotoLibraryAddUsageDescription: 用于保存医疗报告
+        NSCameraUsageDescription: 用于拍摄医疗报告
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen:
+          UIColorName: AccentColor
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 健康档案
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.personal.healthrecord
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.personal.healthrecord
+            UTTypeDescription: 健康档案数据
+            UTTypeConformsTo:
+              - public.json
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - healthrecord
