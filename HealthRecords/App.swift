@@ -1,30 +1,41 @@
 import SwiftUI
+import AVFoundation
+import Photos
 
 @main
 struct HealthRecordsApp: App {
     let persistence = PersistenceController.shared
     @StateObject private var pm = ProfileManager()
     @State private var importResult: ImportResult?
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if hasCompletedOnboarding {
+                ContentView()
+                    .environment(\.managedObjectContext, persistence.container.viewContext)
+                    .environmentObject(pm)
+                    .onOpenURL { url in
+                        handleIncomingFile(url)
+                    }
+                    .alert(item: $importResult) { result in
+                        Alert(
+                            title: Text(result.title),
+                            message: Text(result.message),
+                            dismissButton: .default(Text("好的")) {
+                                if let profile = result.profile {
+                                    pm.select(profile)
+                                }
+                            }
+                        )
+                    }
+            } else {
+                OnboardingView(onComplete: {
+                    hasCompletedOnboarding = true
+                })
                 .environment(\.managedObjectContext, persistence.container.viewContext)
                 .environmentObject(pm)
-                .onOpenURL { url in
-                    handleIncomingFile(url)
-                }
-                .alert(item: $importResult) { result in
-                    Alert(
-                        title: Text(result.title),
-                        message: Text(result.message),
-                        dismissButton: .default(Text("好的")) {
-                            if let profile = result.profile {
-                                pm.select(profile)
-                            }
-                        }
-                    )
-                }
+            }
         }
     }
 
@@ -52,4 +63,218 @@ struct ImportResult: Identifiable {
     let title: String
     let message: String
     var profile: Profile?
+}
+
+// MARK: - Onboarding
+
+struct OnboardingView: View {
+    let onComplete: () -> Void
+    @AppStorage("summaryLanguage") private var lang = "zh"
+    @State private var currentPage = 0
+    @State private var networkReady = false
+    @State private var cameraGranted = false
+    @State private var photosGranted = false
+
+    private var useEN: Bool { lang == "en" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabView(selection: $currentPage) {
+                welcomePage.tag(0)
+                permissionPage.tag(1)
+                readyPage.tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+        }
+    }
+
+    private var welcomePage: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "heart.text.clipboard")
+                .font(.system(size: 72))
+                .foregroundColor(.blue)
+            Text("HealthTrace")
+                .font(.largeTitle.bold())
+            Text(useEN
+                 ? "Your personal health records manager.\nAll data is stored locally on your device."
+                 : "你的个人健康档案管理工具\n所有数据仅保存在本地设备上")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+
+            Button {
+                withAnimation { currentPage = 1 }
+            } label: {
+                Text(useEN ? "Get Started" : "开始使用")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 40)
+        }
+    }
+
+    private var permissionPage: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Text(useEN ? "App Permissions" : "应用权限说明")
+                .font(.title2.bold())
+
+            VStack(alignment: .leading, spacing: 16) {
+                permissionRow(
+                    icon: "network",
+                    iconColor: .purple,
+                    title: useEN ? "Network Access" : "网络访问",
+                    desc: useEN
+                        ? "Required for AI-powered report analysis. Your reports are sent to the AI provider (Gemini/DeepSeek) you configure. No data is sent without your API key."
+                        : "AI 智能分析报告需要联网。报告内容会发送至你配置的 AI 服务（Gemini/DeepSeek）进行分析，未设置 API Key 时不会发送任何数据。",
+                    status: networkReady ? "✓" : nil
+                )
+
+                permissionRow(
+                    icon: "camera.fill",
+                    iconColor: .orange,
+                    title: useEN ? "Camera" : "相机",
+                    desc: useEN
+                        ? "Take photos of medical reports for AI extraction."
+                        : "拍摄医疗报告照片，用于 AI 自动提取信息。",
+                    status: cameraGranted ? "✓" : nil
+                )
+
+                permissionRow(
+                    icon: "photo.fill",
+                    iconColor: .green,
+                    title: useEN ? "Photo Library" : "相册",
+                    desc: useEN
+                        ? "Select existing report photos from your library."
+                        : "从相册选择已有的报告照片。",
+                    status: photosGranted ? "✓" : nil
+                )
+            }
+            .padding(.horizontal, 24)
+
+            Spacer()
+
+            Button {
+                requestAllPermissions()
+            } label: {
+                Text(useEN ? "Allow Permissions" : "授权所有权限")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+            }
+            .padding(.horizontal, 32)
+
+            Button {
+                withAnimation { currentPage = 2 }
+            } label: {
+                Text(useEN ? "Skip for now" : "暂时跳过")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 40)
+        }
+    }
+
+    private var readyPage: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 72))
+                .foregroundColor(.green)
+            Text(useEN ? "You're all set!" : "准备就绪！")
+                .font(.title.bold())
+            Text(useEN
+                 ? "Start by creating a profile and adding your first health report."
+                 : "创建你的档案，开始记录你的健康数据吧。")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+
+            Button {
+                onComplete()
+            } label: {
+                Text(useEN ? "Enter App" : "进入应用")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 40)
+        }
+    }
+
+    private func permissionRow(icon: String, iconColor: Color, title: String, desc: String, status: String?) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(iconColor)
+                .frame(width: 36, height: 36)
+                .background(iconColor.opacity(0.12))
+                .cornerRadius(8)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    if let s = status {
+                        Text(s).font(.caption).foregroundColor(.green)
+                    }
+                }
+                Text(desc)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func requestAllPermissions() {
+        // Camera
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            DispatchQueue.main.async { cameraGranted = granted }
+        }
+
+        // Photos
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+            DispatchQueue.main.async { photosGranted = status == .authorized || status == .limited }
+        }
+
+        // Network: trigger by making a lightweight request
+        triggerNetworkPermission()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { currentPage = 2 }
+        }
+    }
+
+    private func triggerNetworkPermission() {
+        guard let url = URL(string: "https://generativelanguage.googleapis.com") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            DispatchQueue.main.async {
+                networkReady = true
+            }
+        }.resume()
+    }
 }

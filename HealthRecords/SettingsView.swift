@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var importStatus: String?
     @State private var statusIsError = false
     @State private var showExportPicker = false
+    @State private var exportURL: URL?
 
     var body: some View {
         Form {
@@ -112,15 +113,23 @@ struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showShare) {
-            if let data = exportData,
-               let url = saveToTemp(data: data, name: "HealthTrace_备份.json") {
+            if let url = exportURL {
                 ActivityView(items: [url])
             }
         }
-        .sheet(isPresented: $showExportPicker) {
+        .sheet(isPresented: $showExportPicker, onDismiss: {
+            if exportURL != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showShare = true
+                }
+            }
+        }) {
             ExportProfilePicker { selectedData in
-                exportData = selectedData
-                showShare = selectedData != nil
+                exportURL = nil
+                if let data = selectedData, let url = saveToTemp(data: data, name: "HealthTrace_备份.json") {
+                    exportData = data
+                    exportURL = url
+                }
             }
         }
         .onAppear {
@@ -294,10 +303,8 @@ struct ExportProfilePicker: View {
                     Button(L("导出", lang)) {
                         let chosen = profiles.filter { selected.contains($0.objectID) }
                         let data = generateExport(profiles: chosen)
+                        onExport(data)
                         dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            onExport(data)
-                        }
                     }
                     .disabled(selected.isEmpty)
                 }
