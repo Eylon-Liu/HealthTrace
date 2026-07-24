@@ -137,6 +137,7 @@ struct ReportDetailView: View {
     @State private var isAnalyzing = false
     @State private var aiSummary: String = ""
     @State private var aiError: String?
+    @State private var aiExpanded = false
     @FetchRequest(sortDescriptors: []) private var allFavorites: FetchedResults<FavoriteLabItem>
 
     @AppStorage("ai_provider") private var providerRaw = "gemini"
@@ -276,18 +277,6 @@ struct ReportDetailView: View {
                 Image(systemName: "sparkles").foregroundColor(.purple)
                 Text(useEnglish ? "AI Analysis" : "AI 分析").font(.headline)
                 Spacer()
-                if !aiSummary.isEmpty {
-                    Button {
-                        Task { await runAnalysis() }
-                    } label: {
-                        if isAnalyzing {
-                            ProgressView().scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "arrow.clockwise").font(.caption)
-                        }
-                    }
-                    .disabled(isAnalyzing)
-                }
             }
 
             if aiSummary.isEmpty {
@@ -311,16 +300,79 @@ struct ReportDetailView: View {
                 }
                 .disabled(isAnalyzing || currentAPIKey.isEmpty)
             } else {
-                Text(aiSummary)
-                    .font(.system(size: 13))
-                    .lineSpacing(4)
-                    .padding(12)
-                    .background(Color.purple.opacity(0.05))
-                    .cornerRadius(10)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task { await runAnalysis() }
+                        } label: {
+                            if isAnalyzing {
+                                ProgressView().scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "arrow.clockwise").font(.caption)
+                            }
+                        }
+                        .disabled(isAnalyzing)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { aiExpanded.toggle() }
+                        } label: {
+                            Image(systemName: aiExpanded ? "minus" : "plus")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.purple)
+                        }
+                    }
+                    .padding(.bottom, 4)
+
+                    if aiExpanded {
+                        Text(aiSummary)
+                            .font(.system(size: 13))
+                            .lineSpacing(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(aiSummary)
+                            .font(.system(size: 13))
+                            .lineSpacing(4)
+                            .lineLimit(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { aiExpanded = true }
+                        } label: {
+                            Text(useEnglish ? "Show more" : "展开全部")
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(.purple)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(12)
+                .background(Color.purple.opacity(0.05))
+                .cornerRadius(10)
+                .onTapGesture {
+                    if !aiExpanded {
+                        withAnimation(.easeInOut(duration: 0.2)) { aiExpanded = true }
+                    }
+                }
             }
 
             if let err = aiError {
-                Text(err).font(.caption).foregroundColor(.red)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundColor(.orange)
+                    Text(err).font(.caption).foregroundColor(.red)
+                    Spacer()
+                    Button {
+                        Task { await runAnalysis() }
+                    } label: {
+                        Text(useEnglish ? "Retry" : "重试")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.blue)
+                    }
+                    .disabled(isAnalyzing)
+                }
+                .padding(8)
+                .background(Color.red.opacity(0.06))
+                .cornerRadius(8)
             }
 
             if currentAPIKey.isEmpty {
@@ -344,7 +396,22 @@ struct ReportDetailView: View {
             report.aiSummary = result
             try? ctx.save()
         } catch {
-            aiError = error.localizedDescription
+            let msg = error.localizedDescription
+            if msg.contains("high demand") || msg.contains("429") || msg.contains("rate") || msg.contains("quota") {
+                aiError = useEnglish
+                    ? "AI service is busy. Previous result preserved. Try again later."
+                    : "AI 服务繁忙，之前的结果已保留，请稍后重试。"
+            } else if msg.contains("internet") || msg.contains("network") || msg.contains("offline") || msg.contains("timed out") {
+                aiError = useEnglish
+                    ? "Network error. Check your connection and try again."
+                    : "网络错误，请检查网络连接后重试。"
+            } else {
+                aiError = msg
+            }
+            let saved = aiError
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                if aiError == saved { aiError = nil }
+            }
         }
         isAnalyzing = false
     }

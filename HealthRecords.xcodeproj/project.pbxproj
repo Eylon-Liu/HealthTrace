@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1CEFCF6B14CCB448CBD32B87 /* Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4AB4DFA18CA0EB2F884359F /* Helpers.swift */; };
+		1FAAC86A547E735080F574B2 /* AbnormalDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C902C5B970BFB740ACC9F657 /* AbnormalDetailView.swift */; };
 		28D12EB4424F4D85743589A5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5FD4806075F491923A7C0A /* ContentView.swift */; };
 		3AEE1D73900CA270820519DD /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C76E8DC33C41A504D27DFC3 /* ReportsView.swift */; };
 		3D2F57AFD7966A0C0C9E7014 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367FAD53216256D976AFFFFA /* DashboardView.swift */; };
@@ -46,6 +47,7 @@
 		9849BACF7B7A3A0E38FB5CB7 /* TrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsView.swift; sourceTree = "<group>"; };
 		A299F84E42F65E087F51C228 /* ConditionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionsView.swift; sourceTree = "<group>"; };
 		AEF61101696957A8AB09EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C902C5B970BFB740ACC9F657 /* AbnormalDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbnormalDetailView.swift; sourceTree = "<group>"; };
 		D4AB4DFA18CA0EB2F884359F /* Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Helpers.swift; sourceTree = "<group>"; };
 		E41B19BEBFF8D6F34604D974 /* ProfileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileManager.swift; sourceTree = "<group>"; };
 		E80A845BF2468AC56BA7A7A1 /* ProfileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileExporter.swift; sourceTree = "<group>"; };
@@ -58,6 +60,7 @@
 		5277ADEE48F6055AFF133261 /* HealthRecords */ = {
 			isa = PBXGroup;
 			children = (
+				C902C5B970BFB740ACC9F657 /* AbnormalDetailView.swift */,
 				8C46B7C571A2339184D6A232 /* AddConditionView.swift */,
 				E9D9313FE05D3EEC4FC4F62A /* AddReportView.swift */,
 				3847B0D9A665A82D808D3B85 /* AllLabItemsView.swift */,
@@ -127,7 +130,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 1430;
 			};
 			buildConfigurationList = 4651D552D181C7C09D1E0690 /* Build configuration list for PBXProject "HealthRecords" */;
 			developmentRegion = en;
@@ -164,6 +167,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FAAC86A547E735080F574B2 /* AbnormalDetailView.swift in Sources */,
 				E2D6E19558A08DD24A7CEE23 /* AddConditionView.swift in Sources */,
 				3FC3418E44BD1D38B021C07D /* AddReportView.swift in Sources */,
 				622232E96EC2215C78D14B2F /* AllLabItemsView.swift in Sources */,
@@ -203,7 +207,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.HealthRecords;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -248,7 +252,6 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -262,7 +265,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -306,7 +308,6 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -327,7 +328,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -348,7 +348,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.HealthRecords;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;

@@ -268,7 +268,7 @@ func generateReportSummary(report: MedicalReport, language: String, provider: AI
     let prompt: String
     if isEN {
         prompt = """
-        You are a professional medical consultant. Analyze the following medical report and provide a concise analysis. ALL output must be in English, even if the source report is in another language. Translate any non-English content.
+        You are a professional medical consultant. Analyze the following medical report and provide a concise analysis. Do not introduce yourself or have any opening pleasantries — start directly with the analysis. ALL output must be in English, even if the source report is in another language. Translate any non-English content.
         \(condText.isEmpty ? "" : "\nIMPORTANT: The patient has these known conditions: \(condText). Pay special attention to any lab values or findings related to these conditions.\n")
         Report: \(report.title ?? "")
         Date: \(report.reportDate?.isoString ?? "Unknown")
@@ -296,7 +296,7 @@ func generateReportSummary(report: MedicalReport, language: String, provider: AI
         """
     } else {
         prompt = """
-        你是专业医疗顾问。请分析以下检查报告，给出简明扼要的分析。所有输出必须用中文，即使原始报告是英文或其他语言，也请翻译为中文输出。
+        你是专业医疗顾问。请分析以下检查报告，给出简明扼要的分析。不要有开场白或自我介绍，直接开始分析。所有输出必须用中文，即使原始报告是英文或其他语言，也请翻译为中文输出。
         \(condText.isEmpty ? "" : "\n重要：患者有以下已知病史：\(condText)。请特别注意与这些病史相关的检验指标和发现。\n")
         报告：\(report.title ?? "")
         日期：\(report.reportDate?.isoString ?? "未知")
@@ -331,86 +331,189 @@ func generateGlobalSummary(profile: Profile, reports: [MedicalReport], condition
     guard !apiKey.isEmpty else { throw AIError.noAPIKey }
 
     let isEN = language == "en"
+    let sorted = reports.sorted { ($0.reportDate ?? .distantPast) > ($1.reportDate ?? .distantPast) }
 
     var reportsSummary = ""
-    for r in reports.sorted(by: { ($0.reportDate ?? .distantPast) > ($1.reportDate ?? .distantPast) }).prefix(10) {
-        reportsSummary += "\n[\(r.title ?? "")] \(r.reportDate?.isoString ?? "") \(r.reportType ?? "")\n"
-        if let c = r.conclusion, !c.isEmpty { reportsSummary += "conclusion: \(c)\n" }
+    for (i, r) in sorted.prefix(5).enumerated() {
+        reportsSummary += "\n[\(r.title ?? "")] \(r.reportDate?.isoString ?? "") \(r.reportType ?? "")"
+        if i < 2, let c = r.conclusion, !c.isEmpty { reportsSummary += " | \(c)" }
+        reportsSummary += "\n"
         let labValues = (r.labValues as? Set<LabValue>) ?? []
         let abnormal = labValues.filter { $0.status != "normal" && $0.status != nil }
-        for lv in abnormal.sorted(by: { ($0.itemName ?? "") < ($1.itemName ?? "") }) {
+            .sorted { ($0.status == "critical" ? 0 : 1) < ($1.status == "critical" ? 0 : 1) }
+        let shown = abnormal.prefix(5)
+        for lv in shown {
             reportsSummary += "  ⚠ \(lv.itemName ?? ""): \(lv.value ?? "") \(lv.unit ?? "") (\(lv.status ?? ""))\n"
         }
+        if abnormal.count > 5 { reportsSummary += "  ... +\(abnormal.count - 5) more\n" }
     }
 
-    var condText = ""
-    for c in conditions {
-        condText += "- \(c.name ?? "") [\(c.status ?? "")]\(c.restrictions.map { " restrictions:\($0)" } ?? "")\n"
-    }
+    let condText = conditions.map { "- \($0.name ?? "") [\($0.status ?? "")]" }.joined(separator: "\n")
 
     let prompt: String
     if isEN {
         prompt = """
-        You are a professional medical consultant. Analyze all health records for this patient and generate a comprehensive health summary. ALL output must be in English, even if reports are in other languages. Translate any non-English content.
+        You are a health advisor. Analyze these health records and write a friendly, easy-to-understand summary. Do not introduce yourself or have any opening pleasantries — start directly with the summary. Explain medical terms in plain language. English output only.
 
-        Patient: \(profile.name ?? "")
-        Gender: \(profile.gender ?? "Unknown")
-        Allergies: \(profile.allergies ?? "None")
-
-        Medical History:
-        \(condText.isEmpty ? "None" : condText)
-
-        Reports (newest first, up to 10):
+        Patient: \(profile.name ?? ""), \(profile.gender ?? "Unknown"), Allergies: \(profile.allergies ?? "None")
+        Conditions: \(condText.isEmpty ? "None" : condText)
+        Reports (newest first):
         \(reportsSummary.isEmpty ? "None" : reportsSummary)
 
-        Output in plain text (no markdown) using these sections:
+        Plain text output (no markdown). Write complete sentences, do not cut off mid-thought:
 
         [Overall Health Assessment]
-        Comprehensive health status based on all reports
+        How is the patient doing overall? Summarize in 2-3 sentences a non-medical person can understand.
 
-        [Abnormal Indicators Analysis]
-        List all concerning abnormal indicators with clinical significance and severity
+        [What Needs Attention]
+        Which abnormal results matter most? Explain what each means for the patient's health in plain language.
 
-        [Trend Changes]
-        Analyze how indicators have changed over time — which are worsening, which are improving
+        [Changes Over Time]
+        Are things getting better or worse? Which numbers are trending in the wrong direction?
 
-        [Recommendations]
-        Specific advice on diet, exercise, lifestyle, and follow-up examinations
+        [What You Can Do]
+        Practical lifestyle advice: specific foods to eat/avoid, exercise suggestions, when to see a doctor next.
         """
     } else {
         prompt = """
-        你是专业医疗顾问。请综合分析以下患者的所有健康记录，生成全面的健康摘要。所有输出必须用中文，即使原始报告是英文或其他语言，也请翻译为中文输出。
+        你是健康顾问，为患者撰写通俗易懂的健康摘要。不要有开场白或自我介绍，直接开始分析。用口语化中文，解释医学术语。
 
-        患者：\(profile.name ?? "")
-        性别：\(profile.gender ?? "未知")
-        过敏史：\(profile.allergies ?? "无")
-
-        病史记录：
-        \(condText.isEmpty ? "无" : condText)
-
-        检查报告（按时间倒序，最多10份）：
+        患者：\(profile.name ?? "")，\(profile.gender ?? "未知")，过敏：\(profile.allergies ?? "无")
+        病史：\(condText.isEmpty ? "无" : condText)
+        报告（时间倒序）：
         \(reportsSummary.isEmpty ? "无" : reportsSummary)
 
-        请按以下格式输出（纯文本，不要markdown）：
+        纯文本输出（不要markdown），写完整句子，不要中途截断：
 
         【整体健康评估】
-        综合所有报告的整体健康状况评估
+        用2-3句话概括整体健康状况，让没有医学背景的人也能看懂。
 
-        【异常指标分析】
-        列出所有需要关注的异常指标，说明临床意义和严重程度
+        【需要关注的问题】
+        哪些异常指标最重要？用通俗的语言解释每个异常对健康意味着什么。
 
-        【趋势变化】
-        分析各指标随时间的变化趋势，哪些在恶化、哪些在改善
+        【变化趋势】
+        哪些指标在好转？哪些在恶化？和上次比有什么变化？
 
-        【建议和注意事项】
-        饮食、运动、生活方式、随访检查等具体建议
+        【生活建议】
+        具体的饮食建议（吃什么、忌什么）、运动建议、下次复查时间。
         """
     }
 
     return try await callGeminiText(prompt: prompt, provider: provider, apiKey: apiKey)
 }
 
-private func callGeminiText(prompt: String, provider: AIProvider, apiKey: String) async throws -> String {
+func generateDoctorSummary(profile: Profile, reports: [MedicalReport], conditions: [Condition], language: String, provider: AIProvider, apiKey: String) async throws -> String {
+    guard !apiKey.isEmpty else { throw AIError.noAPIKey }
+
+    let isEN = language == "en"
+    let sorted = reports.sorted { ($0.reportDate ?? .distantPast) > ($1.reportDate ?? .distantPast) }
+
+    // Build comprehensive lab data for doctor: include ALL abnormals + key normals relevant to conditions
+    var labDigest = ""
+    for r in sorted.prefix(3) {
+        let labValues = (r.labValues as? Set<LabValue>) ?? []
+        let abnormal = labValues.filter { $0.status != "normal" && $0.status != nil }
+        if abnormal.isEmpty && (r.conclusion ?? "").isEmpty { continue }
+        labDigest += "\n\(r.reportDate?.isoString ?? "") [\(r.reportType ?? "")]"
+        if let c = r.conclusion, !c.isEmpty { labDigest += " \(c)" }
+        labDigest += "\n"
+        for lv in abnormal.sorted(by: { ($0.itemName ?? "") < ($1.itemName ?? "") }) {
+            labDigest += "  \(lv.itemName ?? ""): \(lv.value ?? "") \(lv.unit ?? "") (ref:\(lv.refRange ?? "")) [\(lv.status ?? "")]\n"
+        }
+    }
+
+    let condList = conditions.map {
+        var s = "• \($0.name ?? "") [\($0.status ?? "")]"
+        if let sev = $0.severity, !sev.isEmpty { s += ", severity: \(sev)" }
+        if let onset = $0.dateOnset { s += ", onset: \(onset.isoString)" }
+        if let r = $0.restrictions, !r.isEmpty { s += ", restrictions: \(r)" }
+        if let n = $0.notes, !n.isEmpty { s += ", notes: \(n)" }
+        return s
+    }.joined(separator: "\n")
+
+    let ageStr: String
+    if let bd = profile.birthDate {
+        let years = Calendar.current.dateComponents([.year], from: bd, to: Date()).year ?? 0
+        ageStr = "\(years)"
+    } else { ageStr = isEN ? "Unknown" : "未知" }
+
+    let prompt: String
+    if isEN {
+        prompt = """
+        Generate a clinical summary in SOAP-note style for physician handoff. Use medical terminology. English only. Write complete thoughts.
+
+        Demographics: \(profile.name ?? ""), \(ageStr)y/o \(profile.gender ?? ""), Allergies: \(profile.allergies ?? "None reported")
+        PMH: \(condList.isEmpty ? "None documented" : condList)
+        Recent investigations:
+        \(labDigest.isEmpty ? "No recent labs" : labDigest)
+
+        Plain text output (no markdown):
+
+        [Chief Complaint / Reason for Summary]
+        One-line summary of why this patient needs attention based on active conditions and recent findings.
+
+        [Active Problem List]
+        For EACH active condition:
+        - Condition name, duration, current status
+        - Relevant lab values with reference ranges and trend (improving/stable/worsening)
+        - Current management gaps if any
+
+        [Significant Lab Abnormalities]
+        Table-style listing: Test | Value | Reference | Clinical significance
+        Flag any values requiring urgent attention.
+
+        [Clinical Assessment]
+        Synthesize findings across conditions. Note interactions between conditions (e.g., uric acid impact on kidney function).
+
+        [Recommended Actions]
+        - Specific tests to order and timeline
+        - Specialist referrals if indicated
+        - Medication considerations
+        - Follow-up interval recommendation
+
+        Footer: "AI-generated clinical summary — not a substitute for clinical evaluation."
+        """
+    } else {
+        prompt = """
+        生成SOAP格式的临床摘要，供医生交接参考。使用专业医学术语。中文输出。写完整句子。
+
+        基本信息：\(profile.name ?? "")，\(ageStr)岁，\(profile.gender ?? "")，过敏史：\(profile.allergies ?? "无")
+        既往史：\(condList.isEmpty ? "无记录" : condList)
+        近期检查：
+        \(labDigest.isEmpty ? "无近期化验" : labDigest)
+
+        纯文本输出（不要markdown）：
+
+        【主诉/摘要原因】
+        一句话概括该患者需要关注的核心问题。
+
+        【活动问题清单】
+        逐条列出每个活动病症：
+        - 诊断名称、病程、当前状态
+        - 相关化验值（含参考范围）及趋势（好转/稳定/恶化）
+        - 当前管理中的不足
+
+        【重要异常化验】
+        逐项列出：检验项目 | 数值 | 参考范围 | 临床意义
+        标注需要紧急处理的数值。
+
+        【临床评估】
+        综合分析各病症间的关联（如高尿酸对肾功能的影响），评估整体风险。
+
+        【建议处置】
+        - 需要开具的检查及时间安排
+        - 是否需要专科转诊
+        - 用药方面的考虑
+        - 建议复诊间隔
+
+        末尾注明："本摘要由 AI 自动生成，仅供临床参考，不替代医生诊断。"
+        """
+    }
+
+    return try await callGeminiText(prompt: prompt, provider: provider, apiKey: apiKey)
+}
+
+func callGeminiText(prompt: String, provider: AIProvider, apiKey: String) async throws -> String {
     if provider == .gemini {
         let body: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]]

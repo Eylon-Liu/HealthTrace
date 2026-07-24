@@ -167,7 +167,12 @@ struct LabTrendsDetailView: View {
         .onAppear {
             loadData()
             if let initial = initialLabItem, !initial.isEmpty, selectedLabItem.isEmpty {
-                selectedLabItem = initial
+                let key = normalizeLabName(initial)
+                if let match = labItems.first(where: { normalizeLabName($0) == key }) {
+                    selectedLabItem = match
+                } else {
+                    selectedLabItem = initial
+                }
                 loadLabData()
             }
         }

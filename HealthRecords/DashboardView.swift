@@ -67,8 +67,8 @@ struct DashboardView: View {
                 StatCard(title: L("检验指标", summaryLanguage), value: "\(labItemCount)", icon: "chart.line.uptrend.xyaxis", color: .green)
             }.buttonStyle(.plain)
 
-            NavigationLink { ConditionsView() } label: {
-                StatCard(title: L("病史记录", summaryLanguage), value: "\(conditions.count)", icon: "heart.fill", color: .red)
+            NavigationLink { AbnormalDetailView() } label: {
+                StatCard(title: L("异常指标", summaryLanguage), value: "\(abnormalItems.count)", icon: "exclamationmark.triangle.fill", color: .red)
             }.buttonStyle(.plain)
 
             NavigationLink { ConditionsView() } label: {
@@ -95,19 +95,25 @@ struct DashboardView: View {
             .padding(.vertical, 12)
 
             ForEach(abnormalItems, id: \.name) { item in
-                HStack(spacing: 8) {
-                    Circle().fill(labStatusColor(item.status)).frame(width: 8, height: 8)
-                    Text(labDisplayName(item.name, language: summaryLanguage)).font(.subheadline)
-                    Spacer()
-                    Text(item.value).font(.subheadline.bold()).foregroundColor(labStatusColor(item.status))
-                    if !item.unit.isEmpty {
-                        Text(item.unit).font(.caption2).foregroundColor(.secondary)
-                    }
-                    Text(labStatusLabel(item.status, language: summaryLanguage)).font(.caption2).foregroundColor(labStatusColor(item.status))
-                    if !item.trend.isEmpty {
-                        Text(item.trend).font(.caption)
+                NavigationLink {
+                    LabTrendsDetailView(initialLabItem: item.name)
+                } label: {
+                    HStack(spacing: 8) {
+                        Circle().fill(labStatusColor(item.status)).frame(width: 8, height: 8)
+                        Text(labDisplayName(item.name, language: summaryLanguage)).font(.subheadline)
+                        Spacer()
+                        Text(item.value).font(.subheadline.bold()).foregroundColor(labStatusColor(item.status))
+                        if !item.unit.isEmpty {
+                            Text(item.unit).font(.caption2).foregroundColor(.secondary)
+                        }
+                        Text(labStatusLabel(item.status, language: summaryLanguage)).font(.caption2).foregroundColor(labStatusColor(item.status))
+                        if !item.trend.isEmpty {
+                            Text(item.trend).font(.caption)
+                        }
+                        Image(systemName: "chevron.right").font(.caption2).foregroundColor(.secondary)
                     }
                 }
+                .foregroundColor(.primary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 Divider().padding(.leading, 16)
@@ -209,7 +215,8 @@ struct DashboardView: View {
 
             Chart {
                 ForEach(abnormalHistory, id: \.date) { h in
-                    BarMark(x: .value("", h.date), y: .value("", h.abnormalCount))
+                    let label = h.date.formatted(.dateTime.month(.abbreviated).year(.twoDigits))
+                    BarMark(x: .value("", label), y: .value("", h.abnormalCount))
                         .foregroundStyle(h.abnormalCount == 0 ? .green : .red.opacity(0.7))
                         .annotation(position: .top) {
                             Text("\(h.abnormalCount)").font(.system(size: 9)).foregroundColor(.secondary)
@@ -217,11 +224,6 @@ struct DashboardView: View {
                 }
             }
             .frame(height: 100)
-            .chartXAxis {
-                AxisMarks(values: .automatic) { _ in
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
-                }
-            }
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
 
@@ -372,55 +374,71 @@ struct DashboardView: View {
         for name in rawNames { seenKeys.insert(normalizeLabName(name)) }
         labItemCount = seenKeys.count
 
-        // Abnormal items from most recent report (batch fetch for trends)
-        if let latestReport = reports.first {
-            let lvs = (latestReport.labValues as? Set<LabValue>) ?? []
-            let abnormals = lvs
-                .filter { $0.status != "normal" && $0.status != nil && !($0.status ?? "").isEmpty }
-                .sorted { ($0.itemName ?? "") < ($1.itemName ?? "") }
+        // Abnormal items: last-tested value per item across ALL reports
+        let allLVReq = NSFetchRequest<LabValue>(entityName: "LabValue")
+        allLVReq.predicate = NSPredicate(format: "report.profile == %@", p)
+        allLVReq.sortDescriptors = [NSSortDescriptor(key: "report.reportDate", ascending: false)]
+        let allLVs = (try? ctx.fetch(allLVReq)) ?? []
 
-            let abnormalNames = Set(abnormals.compactMap { $0.itemName })
-            var trendMap: [String: String] = [:]
-            if !abnormalNames.isEmpty {
-                let trendReq = NSFetchRequest<LabValue>(entityName: "LabValue")
-                trendReq.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                    NSPredicate(format: "report.profile == %@", p),
-                    NSPredicate(format: "itemName IN %@", abnormalNames)
-                ])
-                trendReq.sortDescriptors = [NSSortDescriptor(key: "report.reportDate", ascending: false)]
-                let allLVs = (try? ctx.fetch(trendReq)) ?? []
-                let grouped = Dictionary(grouping: allLVs) { $0.itemName ?? "" }
-                for (name, vals) in grouped {
-                    let values = vals.prefix(3).compactMap { Double($0.value ?? "") }
-                    guard values.count >= 2 else { continue }
-                    let diff = values[0] - values[1]
-                    let threshold = abs(values[1]) * 0.05
-                    trendMap[name] = diff > threshold ? "↑" : (diff < -threshold ? "↓" : "→")
-                }
-            }
+        var seenItemKeys = Set<String>()
+        var lastTestedAbnormals: [(name: String, value: String, unit: String, status: String)] = []
+        var abnormalNames = Set<String>()
 
-            abnormalItems = abnormals.map { lv in
-                let trend = trendMap[lv.itemName ?? ""] ?? ""
-                return (name: lv.itemName ?? "", value: lv.value ?? "", unit: lv.unit ?? "", status: lv.status ?? "", trend: trend)
+        for lv in allLVs {
+            guard let name = lv.itemName else { continue }
+            let key = normalizeLabName(name)
+            guard !seenItemKeys.contains(key) else { continue }
+            seenItemKeys.insert(key)
+            let status = lv.status ?? ""
+            if !status.isEmpty && status != "normal" {
+                lastTestedAbnormals.append((name: name, value: lv.value ?? "", unit: lv.unit ?? "", status: status))
+                abnormalNames.insert(name)
             }
-        } else {
-            abnormalItems = []
         }
 
-        // Abnormal history across reports
+        var trendMap: [String: String] = [:]
+        if !abnormalNames.isEmpty {
+            let grouped = Dictionary(grouping: allLVs.filter { abnormalNames.contains($0.itemName ?? "") }) { $0.itemName ?? "" }
+            for (name, vals) in grouped {
+                let values = vals.prefix(3).compactMap { Double($0.value ?? "") }
+                guard values.count >= 2 else { continue }
+                let diff = values[0] - values[1]
+                let threshold = abs(values[1]) * 0.05
+                trendMap[name] = diff > threshold ? "↑" : (diff < -threshold ? "↓" : "→")
+            }
+        }
+
+        abnormalItems = lastTestedAbnormals
+            .sorted { ($0.name) < ($1.name) }
+            .map { item in
+                let trend = trendMap[item.name] ?? ""
+                return (name: item.name, value: item.value, unit: item.unit, status: item.status, trend: trend)
+            }
+
+        // Abnormal history across reports (running state tracks last-tested status per item)
         let sortedReports = reports.sorted { ($0.reportDate ?? .distantPast) < ($1.reportDate ?? .distantPast) }
-        var prevAbnormalKeys = Set<String>()
+        var itemLastStatus: [String: String] = [:]
         abnormalHistory = sortedReports.compactMap { r -> (date: Date, title: String, abnormalCount: Int, totalCount: Int, newAbnormals: [String], resolved: [String])? in
             guard let date = r.reportDate else { return nil }
             let lvs = (r.labValues as? Set<LabValue>) ?? []
             let labReports = lvs.filter { $0.status != nil && !($0.status ?? "").isEmpty }
             guard !labReports.isEmpty else { return nil }
-            let abnormal = lvs.filter { $0.status != "normal" && $0.status != nil && !($0.status ?? "").isEmpty }
-            let currentKeys = Set(abnormal.map { normalizeLabName($0.itemName ?? "") })
-            let newAbnormals = Array(currentKeys.subtracting(prevAbnormalKeys))
-            let resolved = Array(prevAbnormalKeys.subtracting(currentKeys))
-            prevAbnormalKeys = currentKeys
-            return (date: date, title: r.title ?? "", abnormalCount: abnormal.count, totalCount: labReports.count,
+
+            let testedInThisReport = Set(lvs.compactMap { $0.itemName }.map { normalizeLabName($0) })
+            let prevAbnormalKeys = Set(itemLastStatus.filter { $0.value != "normal" }.keys)
+
+            for lv in lvs {
+                guard let name = lv.itemName, let status = lv.status, !status.isEmpty else { continue }
+                itemLastStatus[normalizeLabName(name)] = status
+            }
+
+            let currentAbnormalKeys = Set(itemLastStatus.filter { $0.value != "normal" }.keys)
+            let newAbnormals = Array(currentAbnormalKeys.subtracting(prevAbnormalKeys))
+            let resolved = Array(prevAbnormalKeys.filter { key in
+                testedInThisReport.contains(key) && !currentAbnormalKeys.contains(key)
+            })
+
+            return (date: date, title: r.title ?? "", abnormalCount: currentAbnormalKeys.count, totalCount: labReports.count,
                     newAbnormals: newAbnormals, resolved: resolved)
         }
 
