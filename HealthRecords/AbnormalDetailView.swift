@@ -4,35 +4,47 @@ import CoreData
 struct AbnormalDetailView: View {
     @Environment(\.managedObjectContext) var ctx
     @EnvironmentObject var pm: ProfileManager
-    @AppStorage("summaryLanguage") private var summaryLanguage = "zh"
+    @AppStorage("summaryLanguage") private var lang = "zh"
     @AppStorage("ai_provider") private var providerRaw = "gemini"
     @AppStorage("gemini_api_key") private var geminiKey = ""
     @AppStorage("deepseek_api_key") private var deepseekKey = ""
 
-    @State private var abnormalItems: [(name: String, value: String, unit: String, status: String, refRange: String, reportDate: Date?, reportTitle: String)] = []
+    @State private var abnormalItems: [LabSnapshot] = []
     @State private var aiExplanation = ""
+    @State private var aiGeneratedAt: Date?
+    @State private var aiIsStale = false
     @State private var isGeneratingAI = false
     @State private var aiError: String?
     @State private var aiExpanded = false
 
     private var currentProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
     private var currentAPIKey: String { currentProvider == .gemini ? geminiKey : deepseekKey }
-    private var useEN: Bool { summaryLanguage == "en" }
+    private var useEN: Bool { lang == "en" }
+    private var cacheKey: String {
+        "aiAbnormalExplanation_\(pm.currentProfile?.id?.uuidString ?? "none")"
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 if abnormalItems.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 48)).foregroundColor(.green)
-                        Text(useEN ? "All indicators are normal!" : "所有指标均正常！")
-                            .font(.headline)
+                        Text(T("所有指标均正常！", "All indicators are normal!", lang)).font(.headline)
+                        Text(T("最近一次检验的每项数值都在参考范围内",
+                               "Every test's most recent value is within range", lang))
+                            .font(.caption).foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                    .padding(.vertical, 48)
                 } else {
-                    ForEach(abnormalItems, id: \.name) { item in
+                    Text(T("以下为每项指标最近一次检验的数值",
+                           "Showing each test's most recent result", lang))
+                        .font(.caption).foregroundColor(.secondary)
+
+                    ForEach(abnormalItems) { item in
                         NavigationLink {
                             LabTrendsDetailView(initialLabItem: item.name)
                         } label: {
@@ -44,35 +56,34 @@ struct AbnormalDetailView: View {
                     aiSection
                 }
             }
-            .padding()
+            .padding(16)
         }
-        .navigationTitle(useEN ? "Abnormal Indicators" : "异常指标详情")
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(T("异常指标", "Abnormal Indicators", lang))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadItems(); loadCachedAI() }
     }
 
-    private func abnormalItemRow(_ item: (name: String, value: String, unit: String, status: String, refRange: String, reportDate: Date?, reportTitle: String)) -> some View {
+    private func abnormalItemRow(_ item: LabSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Circle().fill(labStatusColor(item.status)).frame(width: 10, height: 10)
-                Text(labDisplayName(item.name, language: summaryLanguage))
-                    .font(.headline)
+                Text(labDisplayName(item.name, language: lang)).font(.headline)
                 Spacer()
-                Text(labStatusLabel(item.status, language: summaryLanguage))
+                Text(labStatusLabel(item.status, language: lang))
                     .font(.caption.weight(.semibold))
                     .foregroundColor(labStatusColor(item.status))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
                     .background(labStatusColor(item.status).opacity(0.12))
                     .cornerRadius(6)
                 Image(systemName: "chevron.right").font(.caption2).foregroundColor(.secondary)
             }
 
-            if labDisplayName(item.name, language: summaryLanguage) != item.name {
+            if labDisplayName(item.name, language: lang) != item.name {
                 Text(item.name).font(.caption).foregroundColor(.secondary)
             }
 
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(item.value)
                     .font(.title2.bold())
                     .foregroundColor(labStatusColor(item.status))
@@ -81,153 +92,68 @@ struct AbnormalDetailView: View {
                 }
                 Spacer()
                 if !item.refRange.isEmpty {
-                    Text(useEN ? "Ref: \(item.refRange)" : "参考：\(item.refRange)")
+                    Text(T("参考：\(item.refRange)", "Ref: \(item.refRange)", lang))
                         .font(.caption).foregroundColor(.secondary)
                 }
             }
 
             if let date = item.reportDate {
-                Text("\(useEN ? "From:" : "来源：") \(item.reportTitle) (\(date.formatted(.dateTime.year().month().day())))")
+                Text(T("来源：", "From: ", lang) + item.reportTitle + " (" + date.isoString + ")")
                     .font(.caption2).foregroundColor(.secondary)
             }
         }
-        .padding(14)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .healthCard(padding: 14)
     }
 
     // MARK: - AI Section
 
     private var aiSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "sparkles").foregroundColor(.purple)
-                Text(useEN ? "AI Explanation" : "AI 解读").font(.headline)
-                Spacer()
-                if !aiExplanation.isEmpty {
-                    Button {
-                        Task { await generateAI() }
-                    } label: {
-                        if isGeneratingAI {
-                            ProgressView().scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "arrow.clockwise").font(.caption)
-                        }
-                    }
-                    .disabled(isGeneratingAI)
-                }
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            CardHeader(icon: "sparkles", title: T("AI 解读", "AI Explanation", lang), color: Theme.ai)
 
             if aiExplanation.isEmpty {
-                Button {
+                AIGenerateButton(title: T("AI 解读异常指标", "Explain these abnormals", lang),
+                                 subtitle: T("结合病史用通俗语言说明", "Plain language, read against your history", lang),
+                                 isLoading: isGeneratingAI, lang: lang) {
                     Task { await generateAI() }
-                } label: {
-                    HStack {
-                        if isGeneratingAI {
-                            ProgressView().scaleEffect(0.8)
-                            Text(useEN ? "Analyzing..." : "分析中...").font(.subheadline)
-                        } else {
-                            Image(systemName: "sparkles")
-                            Text(useEN ? "Explain these abnormals" : "AI 解读异常指标")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .background(Color.purple.opacity(0.1))
-                    .foregroundColor(.purple)
-                    .cornerRadius(10)
                 }
                 .disabled(isGeneratingAI || currentAPIKey.isEmpty)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    if aiExpanded {
-                        Text(aiExplanation)
-                            .font(.system(size: 13))
-                            .lineSpacing(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(aiExplanation)
-                            .font(.system(size: 13))
-                            .lineSpacing(4)
-                            .lineLimit(6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button {
-                            withAnimation { aiExpanded = true }
-                        } label: {
-                            Text(useEN ? "Show more" : "展开全部")
-                                .font(.caption.weight(.medium))
-                                .foregroundColor(.purple)
-                        }
-                        .padding(.top, 4)
-                    }
-
-                    if aiExpanded {
-                        Button {
-                            withAnimation { aiExpanded = false }
-                        } label: {
-                            Text(useEN ? "Collapse" : "收起")
-                                .font(.caption.weight(.medium))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-                .padding(12)
-                .background(Color.purple.opacity(0.05))
-                .cornerRadius(10)
-                .onTapGesture {
-                    if !aiExpanded { withAnimation { aiExpanded = true } }
+                AIResultCard(text: aiExplanation, isExpanded: $aiExpanded,
+                             generatedAt: aiGeneratedAt, isStale: aiIsStale,
+                             isLoading: isGeneratingAI, lang: lang) {
+                    Task { await generateAI() }
                 }
             }
 
             if let err = aiError {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundColor(.orange)
-                    Text(err).font(.caption).foregroundColor(.red)
-                    Spacer()
-                    Button { Task { await generateAI() } } label: {
-                        Text(useEN ? "Retry" : "重试").font(.caption.weight(.medium)).foregroundColor(.blue)
-                    }
+                AIErrorBanner(message: err, isLoading: isGeneratingAI, lang: lang) {
+                    Task { await generateAI() }
                 }
-                .padding(8)
-                .background(Color.red.opacity(0.06))
-                .cornerRadius(8)
             }
+
+            if currentAPIKey.isEmpty { APIKeyHint(lang: lang) }
         }
+        .healthCard(padding: 14)
     }
 
     // MARK: - Data
 
     private func loadItems() {
-        guard let p = pm.currentProfile else { return }
-
-        let req = NSFetchRequest<LabValue>(entityName: "LabValue")
-        req.predicate = NSPredicate(format: "report.profile == %@", p)
-        req.sortDescriptors = [NSSortDescriptor(key: "report.reportDate", ascending: false)]
-        let all = (try? ctx.fetch(req)) ?? []
-
-        var seenKeys = Set<String>()
-        abnormalItems = all.compactMap { lv in
-            guard let name = lv.itemName else { return nil }
-            let key = normalizeLabName(name)
-            guard !seenKeys.contains(key) else { return nil }
-            seenKeys.insert(key)
-            let status = lv.status ?? ""
-            guard !status.isEmpty && status != "normal" else { return nil }
-            return (name: name, value: lv.value ?? "", unit: lv.unit ?? "", status: status,
-                    refRange: lv.refRange ?? "", reportDate: lv.report?.reportDate,
-                    reportTitle: lv.report?.title ?? "")
-        }
-        .sorted { labDisplayName($0.name, language: summaryLanguage) < labDisplayName($1.name, language: summaryLanguage) }
+        guard let p = pm.currentProfile else { abnormalItems = []; return }
+        abnormalItems = lastTestedLabValues(for: p, in: ctx)
+            .filter { $0.isAbnormal }
+            .sorted { labDisplayName($0.name, language: lang) < labDisplayName($1.name, language: lang) }
     }
 
     private func loadCachedAI() {
-        guard let id = pm.currentProfile?.id?.uuidString else { return }
-        aiExplanation = UserDefaults.standard.string(forKey: "aiAbnormalExplanation_\(id)") ?? ""
+        guard pm.currentProfile != nil, let entry = AICache.load(cacheKey) else {
+            aiExplanation = ""; aiGeneratedAt = nil; aiIsStale = false
+            return
+        }
+        aiExplanation = entry.text
+        aiGeneratedAt = entry.generatedAt
+        aiIsStale = AICache.isStale(entry, current: labSignature(abnormalItems))
     }
 
     private func generateAI() async {
@@ -239,10 +165,10 @@ struct AbnormalDetailView: View {
         condReq.predicate = NSPredicate(format: "profile == %@", profile)
         let conditions = (try? ctx.fetch(condReq)) ?? []
         let condText = conditions.filter { $0.status == "active" || $0.status == "monitoring" }
-            .map { $0.name ?? "" }.joined(separator: ", ")
+            .compactMap { $0.name }.joined(separator: ", ")
 
         let itemsList = abnormalItems.map {
-            "\($0.name): \($0.value) \($0.unit) (\(labStatusLabel($0.status, language: summaryLanguage)), ref: \($0.refRange))"
+            "\($0.name): \($0.value) \($0.unit) (\(labStatusLabel($0.status, language: lang)), ref: \($0.refRange))"
         }.joined(separator: "\n")
 
         let prompt: String
@@ -281,15 +207,14 @@ struct AbnormalDetailView: View {
         do {
             let result = try await callGeminiText(prompt: prompt, provider: currentProvider, apiKey: currentAPIKey)
             aiExplanation = result
-            if let id = profile.id?.uuidString {
-                UserDefaults.standard.set(result, forKey: "aiAbnormalExplanation_\(id)")
-            }
+            aiGeneratedAt = Date()
+            aiIsStale = false
+            AICache.save(cacheKey, text: result, signature: labSignature(abnormalItems))
         } catch {
-            let msg = error.localizedDescription
-            if msg.contains("high demand") || msg.contains("429") || msg.contains("rate") {
-                aiError = useEN ? "AI service is busy. Try again later." : "AI 服务繁忙，请稍后重试。"
-            } else {
-                aiError = msg
+            aiError = friendlyAIError(error, useEnglish: useEN)
+            let saved = aiError
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                if aiError == saved { aiError = nil }
             }
         }
         isGeneratingAI = false

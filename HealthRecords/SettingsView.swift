@@ -101,8 +101,16 @@ struct SettingsView: View {
             }
 
             Section(L("关于", summaryLanguage)) {
-                HStack { Text(L("版本", summaryLanguage)); Spacer(); Text("1.0.0").foregroundColor(.secondary) }
-                HStack { Text(L("数据存储", summaryLanguage)); Spacer(); Text(L("本地设备", summaryLanguage)).foregroundColor(.secondary) }
+                // Read from the bundle — a hardcoded "1.0.0" here disagreed with
+                // every build after the first one.
+                HStack {
+                    Text(L("版本", summaryLanguage)); Spacer()
+                    Text(appVersionString).foregroundColor(.secondary)
+                }
+                HStack {
+                    Text(L("数据存储", summaryLanguage)); Spacer()
+                    Text(L("本地设备", summaryLanguage)).foregroundColor(.secondary)
+                }
             }
         }
         .navigationTitle(L("设置", summaryLanguage))
@@ -154,7 +162,9 @@ struct SettingsView: View {
             let data = try Data(contentsOf: url)
             if let _ = try? JSONDecoder().decode(ProfileExportData.self, from: data) {
                 let profile = try ProfileExporter.importProfile(from: url, context: ctx)
-                importStatus = "导入成功！已恢复「\(profile.name ?? "")」的档案"
+                let name = profile.name ?? ""
+                importStatus = T("导入成功！已恢复「\(name)」的档案",
+                                 "Imported — restored \(name)'s profile", summaryLanguage)
                 statusIsError = false
                 return
             }
@@ -162,7 +172,7 @@ struct SettingsView: View {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let profilesData = json["profiles"] as? [[String: Any]]
             else {
-                importStatus = "文件格式不正确"
+                importStatus = L("文件格式不正确", summaryLanguage)
                 statusIsError = true
                 return
             }
@@ -223,10 +233,12 @@ struct SettingsView: View {
             }
 
             try ctx.save()
-            importStatus = "导入成功！共恢复 \(profilesData.count) 个档案"
+            importStatus = T("导入成功！共恢复 \(profilesData.count) 个档案",
+                             "Imported \(profilesData.count) profile(s)", summaryLanguage)
             statusIsError = false
         } catch {
-            importStatus = "导入失败：\(error.localizedDescription)"
+            importStatus = T("导入失败：\(error.localizedDescription)",
+                             "Import failed: \(error.localizedDescription)", summaryLanguage)
             statusIsError = true
         }
     }

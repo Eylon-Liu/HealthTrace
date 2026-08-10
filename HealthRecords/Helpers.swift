@@ -80,18 +80,10 @@ func typeBadgeColor(_ type: String?) -> Color {
     }
 }
 
+/// Derived from the badge color rather than hardcoded pastels, so badges stay
+/// legible in dark mode instead of rendering as light chips on a dark background.
 func typeBadgeBg(_ type: String?) -> Color {
-    switch type {
-    case "MRI": return Color(hex: "#EDE9FE")
-    case "CT": return Color(hex: "#FEF3C7")
-    case "X光": return Color(hex: "#F3F4F6")
-    case "血检": return Color(hex: "#FEE2E2")
-    case "超声": return Color(hex: "#D1FAE5")
-    case "骨密度": return Color(hex: "#E0F2FE")
-    case "心电图": return Color(hex: "#FCE7F3")
-    case "病理": return Color(hex: "#FFF7ED")
-    default: return Color(hex: "#F3F4F6")
-    }
+    typeBadgeColor(type).opacity(0.15)
 }
 
 // MARK: - Status helpers
@@ -419,8 +411,9 @@ struct AvatarView: View {
 
 struct TypeBadge: View {
     let type: String?
+    @AppStorage("summaryLanguage") private var lang = "zh"
     var body: some View {
-        Text(type ?? "报告")
+        Text(reportTypeLabel(type, lang: lang))
             .font(.caption2.weight(.semibold))
             .foregroundColor(typeBadgeColor(type))
             .padding(.horizontal, 7)
@@ -435,6 +428,10 @@ struct TypeBadge: View {
 struct EmptyStateView: View {
     let icon: String
     let message: String
+    /// Optional call to action, so an empty screen offers a way forward instead of a dead end.
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
@@ -444,6 +441,17 @@ struct EmptyStateView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .background(Theme.accent)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)

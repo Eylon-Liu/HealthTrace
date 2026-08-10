@@ -7,13 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CBD221D348116C2DC73A3077 /* MeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0370CBA94F8A0F54EEA804E1 /* MeView.swift */; };
+		E312154DC038A8AC020A46CD /* LabData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF7402C13402A51B9694F1A /* LabData.swift */; };
+		1F341928537F15484C55B0AE /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F1C341723DE43427458A99 /* DesignSystem.swift */; };
 		1CEFCF6B14CCB448CBD32B87 /* Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4AB4DFA18CA0EB2F884359F /* Helpers.swift */; };
 		1FAAC86A547E735080F574B2 /* AbnormalDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C902C5B970BFB740ACC9F657 /* AbnormalDetailView.swift */; };
 		28D12EB4424F4D85743589A5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5FD4806075F491923A7C0A /* ContentView.swift */; };
 		3AEE1D73900CA270820519DD /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C76E8DC33C41A504D27DFC3 /* ReportsView.swift */; };
 		3D2F57AFD7966A0C0C9E7014 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367FAD53216256D976AFFFFA /* DashboardView.swift */; };
 		3FC3418E44BD1D38B021C07D /* AddReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D9313FE05D3EEC4FC4F62A /* AddReportView.swift */; };
-		410403556446DAC88F14651D /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF7EC419B0EFDF1BA318B23 /* MoreView.swift */; };
 		4D84D964C37AC191E4608579 /* ProfileExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80A845BF2468AC56BA7A7A1 /* ProfileExporter.swift */; };
 		5CF2356DC53A67D3F7E1E479 /* ProfileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41B19BEBFF8D6F34604D974 /* ProfileManager.swift */; };
 		622232E96EC2215C78D14B2F /* AllLabItemsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3847B0D9A665A82D808D3B85 /* AllLabItemsView.swift */; };
@@ -31,9 +33,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0370CBA94F8A0F54EEA804E1 /* MeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeView.swift; sourceTree = "<group>"; };
+		FBF7402C13402A51B9694F1A /* LabData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabData.swift; sourceTree = "<group>"; };
+		75F1C341723DE43427458A99 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		0A65C273F5F173D60B5D8A0F /* Model.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Model.xcdatamodel; sourceTree = "<group>"; };
 		1170EBC8BA5F639DC622DB48 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		2EF7EC419B0EFDF1BA318B23 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		316E49A0138B9FACE0ED63C6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		367FAD53216256D976AFFFFA /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		3847B0D9A665A82D808D3B85 /* AllLabItemsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllLabItemsView.swift; sourceTree = "<group>"; };
@@ -60,6 +64,9 @@
 		5277ADEE48F6055AFF133261 /* HealthRecords */ = {
 			isa = PBXGroup;
 			children = (
+				0370CBA94F8A0F54EEA804E1 /* MeView.swift */,
+				FBF7402C13402A51B9694F1A /* LabData.swift */,
+				75F1C341723DE43427458A99 /* DesignSystem.swift */,
 				C902C5B970BFB740ACC9F657 /* AbnormalDetailView.swift */,
 				8C46B7C571A2339184D6A232 /* AddConditionView.swift */,
 				E9D9313FE05D3EEC4FC4F62A /* AddReportView.swift */,
@@ -72,7 +79,6 @@
 				367FAD53216256D976AFFFFA /* DashboardView.swift */,
 				D4AB4DFA18CA0EB2F884359F /* Helpers.swift */,
 				AEF61101696957A8AB09EA9C /* Info.plist */,
-				2EF7EC419B0EFDF1BA318B23 /* MoreView.swift */,
 				5AE6D453912FCD1D2760AE37 /* Persistence.swift */,
 				E80A845BF2468AC56BA7A7A1 /* ProfileExporter.swift */,
 				E41B19BEBFF8D6F34604D974 /* ProfileManager.swift */,
@@ -167,6 +173,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CBD221D348116C2DC73A3077 /* MeView.swift in Sources */,
+				E312154DC038A8AC020A46CD /* LabData.swift in Sources */,
+				1F341928537F15484C55B0AE /* DesignSystem.swift in Sources */,
 				1FAAC86A547E735080F574B2 /* AbnormalDetailView.swift in Sources */,
 				E2D6E19558A08DD24A7CEE23 /* AddConditionView.swift in Sources */,
 				3FC3418E44BD1D38B021C07D /* AddReportView.swift in Sources */,
@@ -178,7 +187,6 @@
 				3D2F57AFD7966A0C0C9E7014 /* DashboardView.swift in Sources */,
 				1CEFCF6B14CCB448CBD32B87 /* Helpers.swift in Sources */,
 				65CE458F2C206F6F5FD6792E /* Model.xcdatamodeld in Sources */,
-				410403556446DAC88F14651D /* MoreView.swift in Sources */,
 				AC3807D34FCD1B97221E30B1 /* Persistence.swift in Sources */,
 				4D84D964C37AC191E4608579 /* ProfileExporter.swift in Sources */,
 				5CF2356DC53A67D3F7E1E479 /* ProfileManager.swift in Sources */,
@@ -207,7 +215,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.HealthRecords;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -348,7 +356,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.personal.HealthRecords;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;

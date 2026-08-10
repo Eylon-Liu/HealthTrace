@@ -24,19 +24,31 @@ struct ReportsView: View {
 
     private var grouped: [(String, [MedicalReport])] {
         let dict = Dictionary(grouping: reports) { $0.bodyPart ?? "其他" }
-        return dict.sorted { $0.key < $1.key }
+        return dict.sorted { bodyPartSortKey($0.key) < bodyPartSortKey($1.key) }
     }
+
+    private var hasFilter: Bool { !filterType.isEmpty || !filterPart.isEmpty }
 
     var body: some View {
         Group {
             if pm.currentProfile == nil {
-                EmptyStateView(icon: "doc.text", message: lang == "en" ? "Please select a profile" : "请先选择档案")
+                EmptyStateView(icon: "doc.text", message: T("请先选择档案", "Please select a profile", lang))
             } else if reports.isEmpty {
-                EmptyStateView(icon: "doc.text", message: lang == "en" ? "No reports yet\nTap + to add" : "暂无报告\n点击右上角 + 添加")
+                EmptyStateView(
+                    icon: hasFilter ? "line.3.horizontal.decrease.circle" : "doc.text",
+                    message: hasFilter
+                        ? T("没有符合筛选条件的报告", "No reports match these filters", lang)
+                        : T("还没有报告\n点击下方红色按钮添加第一份", "No reports yet\nTap the red button below to add one", lang),
+                    actionTitle: hasFilter
+                        ? T("清除筛选", "Clear filters", lang)
+                        : T("添加报告", "Add report", lang),
+                    action: {
+                        if hasFilter { filterType = ""; filterPart = "" } else { showAdd = true }
+                    })
             } else {
                 List {
                     ForEach(grouped, id: \.0) { part, reps in
-                        Section(part) {
+                        Section(bodyPartLabel(part, lang: lang)) {
                             ForEach(reps, id: \.id) { r in
                                 NavigationLink { ReportDetailView(report: r) } label: {
                                     ReportRowView(report: r)
@@ -49,31 +61,34 @@ struct ReportsView: View {
                 .listStyle(.insetGrouped)
             }
         }
-        .navigationTitle(lang == "en" ? "Reports" : "检查报告")
+        .navigationTitle(T("检查报告", "Reports", lang))
+        // No "+" here: the red button in the tab bar is the one way to add a report.
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Menu(lang == "en" ? "Filter by Type" : "按类型筛选") {
-                        Button(lang == "en" ? "All" : "全部") { filterType = "" }
+                    Menu(T("按类型筛选", "Filter by Type", lang)) {
+                        Button(T("全部", "All", lang)) { filterType = "" }
                         ForEach(["MRI","CT","X光","血检","超声","骨密度","心电图","病理","其他"], id: \.self) { t in
-                            Button(t) { filterType = t }
+                            Button(reportTypeLabel(t, lang: lang)) { filterType = t }
                         }
                     }
-                    Menu(lang == "en" ? "Filter by Area" : "按部位筛选") {
-                        Button(lang == "en" ? "All" : "全部") { filterPart = "" }
+                    Menu(T("按部位筛选", "Filter by Area", lang)) {
+                        Button(T("全部", "All", lang)) { filterPart = "" }
                         ForEach(["腰椎","颈椎","胸椎","膝关节","髋关节","肩关节","头颅","胸部","腹部","血液","其他"], id: \.self) { p in
-                            Button(p) { filterPart = p }
+                            Button(bodyPartLabel(p, lang: lang)) { filterPart = p }
                         }
                     }
-                    if !filterType.isEmpty || !filterPart.isEmpty {
-                        Button(lang == "en" ? "Clear Filters" : "清除筛选", role: .destructive) { filterType = ""; filterPart = "" }
+                    if hasFilter {
+                        Button(T("清除筛选", "Clear Filters", lang), role: .destructive) {
+                            filterType = ""; filterPart = ""
+                        }
                     }
                 } label: {
-                    Image(systemName: filterType.isEmpty && filterPart.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    Image(systemName: hasFilter
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
                 }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { showAdd = true } label: { Image(systemName: "plus") }
+                .accessibilityLabel(T("筛选", "Filter", lang))
             }
         }
         .sheet(isPresented: $showAdd) {
@@ -138,6 +153,7 @@ struct ReportDetailView: View {
     @State private var aiSummary: String = ""
     @State private var aiError: String?
     @State private var aiExpanded = false
+    @State private var showAllLabs = false
     @FetchRequest(sortDescriptors: []) private var allFavorites: FetchedResults<FavoriteLabItem>
 
     @AppStorage("ai_provider") private var providerRaw = "gemini"
@@ -165,8 +181,10 @@ struct ReportDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    MetaItem(label: useEnglish ? "Type" : "类型", value: report.reportType ?? "—")
-                    MetaItem(label: useEnglish ? "Body Part" : "部位", value: report.bodyPart ?? "—")
+                    MetaItem(label: useEnglish ? "Type" : "类型",
+                             value: report.reportType.map { reportTypeLabel($0, lang: summaryLanguage) } ?? "—")
+                    MetaItem(label: useEnglish ? "Body Part" : "部位",
+                             value: report.bodyPart.map { bodyPartLabel($0, lang: summaryLanguage) } ?? "—")
                     MetaItem(label: useEnglish ? "Date" : "日期", value: report.reportDate?.isoString ?? "—")
                     MetaItem(label: useEnglish ? "Hospital" : "医院", value: report.hospital ?? "—")
                     MetaItem(label: useEnglish ? "Doctor" : "医生", value: report.doctor ?? "—")
@@ -210,13 +228,26 @@ struct ReportDetailView: View {
                     DetailSection(title: useEnglish ? "RECOMMENDATIONS" : "建议", content: r)
                 }
 
+                // Collapsed by default: the abnormal values are already called out
+                // above, so expanding this by default just repeated them inside a
+                // wall of forty normal rows.
                 if !labValues.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(useEnglish ? "Lab Values" : "检验数值").font(.headline)
-                            Spacer()
-                            Text(useEnglish ? "\(labValues.count) items" : "\(labValues.count) 项").font(.caption).foregroundColor(.secondary)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showAllLabs.toggle() }
+                        } label: {
+                            HStack {
+                                Text(useEnglish ? "Lab Values" : "检验数值").font(.headline)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text(useEnglish ? "\(labValues.count) items" : "\(labValues.count) 项")
+                                    .font(.caption).foregroundColor(.secondary)
+                                Image(systemName: showAllLabs ? "chevron.up" : "chevron.down")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
                         }
+
+                        if showAllLabs {
                         ForEach(labValues, id: \.id) { lv in
                             HStack {
                                 Button {
@@ -245,6 +276,7 @@ struct ReportDetailView: View {
                             .background(Color(.secondarySystemBackground))
                             .cornerRadius(8)
                         }
+                        }
                     }
                 }
 
@@ -272,113 +304,30 @@ struct ReportDetailView: View {
     private var useEnglish: Bool { summaryLanguage == "en" }
 
     private var aiAnalysisSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "sparkles").foregroundColor(.purple)
-                Text(useEnglish ? "AI Analysis" : "AI 分析").font(.headline)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            CardHeader(icon: "sparkles", title: T("AI 分析", "AI Analysis", summaryLanguage), color: Theme.ai)
 
             if aiSummary.isEmpty {
-                Button {
+                AIGenerateButton(title: T("AI 分析本报告", "Analyze this report", summaryLanguage),
+                                 subtitle: T("结合病史解读本次结果", "Reads this result against your history", summaryLanguage),
+                                 isLoading: isAnalyzing, lang: summaryLanguage) {
                     Task { await runAnalysis() }
-                } label: {
-                    HStack {
-                        if isAnalyzing {
-                            ProgressView().scaleEffect(0.8)
-                            Text(useEnglish ? "Analyzing..." : "分析中...").font(.subheadline)
-                        } else {
-                            Image(systemName: "sparkles")
-                            Text(useEnglish ? "AI Analyze Report" : "AI 分析本报告").font(.subheadline.weight(.semibold))
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(12)
-                    .background(Color.purple.opacity(0.1))
-                    .foregroundColor(.purple)
-                    .cornerRadius(10)
                 }
                 .disabled(isAnalyzing || currentAPIKey.isEmpty)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack {
-                        Spacer()
-                        Button {
-                            Task { await runAnalysis() }
-                        } label: {
-                            if isAnalyzing {
-                                ProgressView().scaleEffect(0.7)
-                            } else {
-                                Image(systemName: "arrow.clockwise").font(.caption)
-                            }
-                        }
-                        .disabled(isAnalyzing)
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { aiExpanded.toggle() }
-                        } label: {
-                            Image(systemName: aiExpanded ? "minus" : "plus")
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(.purple)
-                        }
-                    }
-                    .padding(.bottom, 4)
-
-                    if aiExpanded {
-                        Text(aiSummary)
-                            .font(.system(size: 13))
-                            .lineSpacing(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(aiSummary)
-                            .font(.system(size: 13))
-                            .lineSpacing(4)
-                            .lineLimit(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { aiExpanded = true }
-                        } label: {
-                            Text(useEnglish ? "Show more" : "展开全部")
-                                .font(.caption.weight(.medium))
-                                .foregroundColor(.purple)
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-                .padding(12)
-                .background(Color.purple.opacity(0.05))
-                .cornerRadius(10)
-                .onTapGesture {
-                    if !aiExpanded {
-                        withAnimation(.easeInOut(duration: 0.2)) { aiExpanded = true }
-                    }
+                AIResultCard(text: aiSummary, isExpanded: $aiExpanded,
+                             isLoading: isAnalyzing, lang: summaryLanguage) {
+                    Task { await runAnalysis() }
                 }
             }
 
             if let err = aiError {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundColor(.orange)
-                    Text(err).font(.caption).foregroundColor(.red)
-                    Spacer()
-                    Button {
-                        Task { await runAnalysis() }
-                    } label: {
-                        Text(useEnglish ? "Retry" : "重试")
-                            .font(.caption.weight(.medium))
-                            .foregroundColor(.blue)
-                    }
-                    .disabled(isAnalyzing)
+                AIErrorBanner(message: err, isLoading: isAnalyzing, lang: summaryLanguage) {
+                    Task { await runAnalysis() }
                 }
-                .padding(8)
-                .background(Color.red.opacity(0.06))
-                .cornerRadius(8)
             }
 
-            if currentAPIKey.isEmpty {
-                Text(useEnglish ? "Set up API key in Settings first" : "请先在设置中填写 API Key")
-                    .font(.caption).foregroundColor(.secondary)
-            }
+            if currentAPIKey.isEmpty { APIKeyHint(lang: summaryLanguage) }
         }
     }
 
@@ -396,18 +345,7 @@ struct ReportDetailView: View {
             report.aiSummary = result
             try? ctx.save()
         } catch {
-            let msg = error.localizedDescription
-            if msg.contains("high demand") || msg.contains("429") || msg.contains("rate") || msg.contains("quota") {
-                aiError = useEnglish
-                    ? "AI service is busy. Previous result preserved. Try again later."
-                    : "AI 服务繁忙，之前的结果已保留，请稍后重试。"
-            } else if msg.contains("internet") || msg.contains("network") || msg.contains("offline") || msg.contains("timed out") {
-                aiError = useEnglish
-                    ? "Network error. Check your connection and try again."
-                    : "网络错误，请检查网络连接后重试。"
-            } else {
-                aiError = msg
-            }
+            aiError = friendlyAIError(error, useEnglish: useEnglish)
             let saved = aiError
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 if aiError == saved { aiError = nil }
@@ -460,6 +398,8 @@ struct DetailSection: View {
 struct FilePreviewView: View {
     let report: MedicalReport
     @Environment(\.dismiss) var dismiss
+    @AppStorage("summaryLanguage") private var lang = "zh"
+
     var body: some View {
         NavigationView {
             Group {
@@ -468,15 +408,20 @@ struct FilePreviewView: View {
                     if FileManager.default.fileExists(atPath: url.path) {
                         QuickLookView(url: url)
                     } else {
-                        EmptyStateView(icon: "doc.slash", message: "文件未找到")
+                        EmptyStateView(icon: "doc.slash",
+                                       message: T("文件未找到", "File not found", lang))
                     }
                 } else {
-                    EmptyStateView(icon: "doc.slash", message: "无附件")
+                    EmptyStateView(icon: "doc.slash", message: T("无附件", "No attachment", lang))
                 }
             }
-            .navigationTitle(report.fileName ?? "报告文件")
+            .navigationTitle(report.fileName ?? T("报告文件", "Report file", lang))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(T("关闭", "Close", lang)) { dismiss() }
+                }
+            }
         }
     }
 }

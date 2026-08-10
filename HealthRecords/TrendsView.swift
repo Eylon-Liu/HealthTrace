@@ -2,54 +2,38 @@ import SwiftUI
 import Charts
 import CoreData
 
+/// Lands directly on the charts. It used to be a two-row menu whose only job was
+/// to push one of these two screens, costing a tap to reach anything.
 struct TrendsView: View {
     @EnvironmentObject var pm: ProfileManager
     @AppStorage("summaryLanguage") private var lang = "zh"
+    @State private var mode = 0
 
     var body: some View {
         Group {
             if pm.currentProfile == nil {
-                EmptyStateView(icon: "chart.line.uptrend.xyaxis", message: L("请先选择档案", lang))
+                EmptyStateView(icon: "chart.xyaxis.line", message: L("请先选择档案", lang))
             } else {
-                List {
-                    NavigationLink {
-                        LabTrendsDetailView()
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "chart.line.uptrend.xyaxis")
-                                .font(.title2).foregroundColor(.blue)
-                                .frame(width: 44, height: 44)
-                                .background(Color.blue.opacity(0.12))
-                                .cornerRadius(10)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L("检验指标趋势", lang)).font(.subheadline.weight(.semibold))
-                                Text(L("血检数值历史对比与趋势分析", lang)).font(.caption).foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                VStack(spacing: 0) {
+                    Picker("", selection: $mode) {
+                        Text(T("检验指标", "Lab Tests", lang)).tag(0)
+                        Text(T("影像对比", "Imaging", lang)).tag(1)
                     }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemBackground))
+                    .overlay(Divider(), alignment: .bottom)
 
-                    NavigationLink {
-                        ImagingCompareView()
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .font(.title2).foregroundColor(.purple)
-                                .frame(width: 44, height: 44)
-                                .background(Color.purple.opacity(0.12))
-                                .cornerRadius(10)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L("影像报告对比", lang)).font(.subheadline.weight(.semibold))
-                                Text(L("MRI/CT/X光等报告文字对比", lang)).font(.caption).foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                    if mode == 0 {
+                        LabTrendsDetailView(embedded: true)
+                    } else {
+                        ImagingCompareView(embedded: true)
                     }
                 }
-                .listStyle(.insetGrouped)
             }
         }
-        .navigationTitle(lang == "en" ? "Trends" : "趋势分析")
+        .navigationTitle(T("趋势分析", "Trends", lang))
     }
 }
 
@@ -57,6 +41,8 @@ struct TrendsView: View {
 
 struct LabTrendsDetailView: View {
     var initialLabItem: String? = nil
+    /// When hosted inside the Trends tab it must not claim the navigation title.
+    var embedded: Bool = false
 
     @Environment(\.managedObjectContext) var ctx
     @EnvironmentObject var pm: ProfileManager
@@ -136,15 +122,36 @@ struct LabTrendsDetailView: View {
                     if labItems.isEmpty {
                         EmptyStateView(icon: "chart.line.uptrend.xyaxis", message: summaryLanguage == "en" ? "No lab data yet" : "暂无血检数据")
                     } else {
-                        Picker(summaryLanguage == "en" ? "Select Lab" : "选择指标", selection: $selectedLabItem) {
-                            Text(summaryLanguage == "en" ? "Select Lab" : "选择指标").tag("")
+                        // A Menu rather than a Picker: the picker's selected label
+                        // rendered the "🔴"/"⭐" row prefix at title size.
+                        Menu {
                             ForEach(sortedLabItems, id: \.self) { item in
-                                let display = labDisplayName(item, language: summaryLanguage)
-                                let prefix = conditionRelatedItems.contains(item) ? "🔴 " : (favoriteNames.contains(item) ? "⭐ " : "")
-                                Text("\(prefix)\(display)").tag(item)
+                                Button {
+                                    selectedLabItem = item
+                                } label: {
+                                    Label(labDisplayName(item, language: summaryLanguage),
+                                          systemImage: item == selectedLabItem ? "checkmark"
+                                            : (conditionRelatedItems.contains(item) ? "heart.fill"
+                                               : (favoriteNames.contains(item) ? "star.fill" : "")))
+                                }
                             }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(selectedLabItem.isEmpty
+                                     ? T("选择指标", "Select Lab", summaryLanguage)
+                                     : labDisplayName(selectedLabItem, language: summaryLanguage))
+                                    .font(.headline)
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                                Spacer()
+                                if conditionRelatedItems.contains(selectedLabItem) {
+                                    Text(T("病史相关", "Related", summaryLanguage))
+                                        .font(.caption2).foregroundColor(.white)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color.red).cornerRadius(4)
+                                }
+                            }
+                            .foregroundColor(.primary)
                         }
-                        .pickerStyle(.menu)
 
                         if !selectedLabItem.isEmpty {
                             if labData.isEmpty {
@@ -162,7 +169,8 @@ struct LabTrendsDetailView: View {
             }
             .padding()
         }
-        .navigationTitle(L("检验指标趋势", summaryLanguage))
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(embedded ? "" : L("检验指标趋势", summaryLanguage))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadData()
@@ -173,6 +181,12 @@ struct LabTrendsDetailView: View {
                 } else {
                     selectedLabItem = initial
                 }
+                loadLabData()
+            }
+            // Open on the most relevant lab (condition-related, then favorites)
+            // rather than an empty chart area waiting for a picker tap.
+            if selectedLabItem.isEmpty, let first = sortedLabItems.first {
+                selectedLabItem = first
                 loadLabData()
             }
         }
@@ -480,6 +494,8 @@ struct LabTrendsDetailView: View {
 // MARK: - Imaging Compare View
 
 struct ImagingCompareView: View {
+    var embedded: Bool = false
+
     @Environment(\.managedObjectContext) var ctx
     @EnvironmentObject var pm: ProfileManager
     @AppStorage("summaryLanguage") private var lang = "zh"
@@ -540,7 +556,7 @@ struct ImagingCompareView: View {
             }
             .padding(.vertical)
         }
-        .navigationTitle(useEN ? "Imaging Comparison" : "影像报告对比")
+        .navigationTitle(embedded ? "" : (useEN ? "Imaging Comparison" : "影像报告对比"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadReports() }
         .sheet(isPresented: $showCompare) {

@@ -22,7 +22,7 @@ struct HealthRecordsApp: App {
                         Alert(
                             title: Text(result.title),
                             message: Text(result.message),
-                            dismissButton: .default(Text("好的")) {
+                            dismissButton: .default(Text(L("好的", currentLang()))) {
                                 if let profile = result.profile {
                                     pm.select(profile)
                                 }
@@ -41,18 +41,24 @@ struct HealthRecordsApp: App {
 
     private func handleIncomingFile(_ url: URL) {
         guard url.pathExtension == "healthrecord" || url.pathExtension == "json" else { return }
+        let lang = currentLang()
         do {
             let profile = try ProfileExporter.importProfile(
                 from: url, context: persistence.container.viewContext)
+            let name = profile.name ?? ""
+            let reports = profile.reports?.count ?? 0
+            let conditions = profile.conditions?.count ?? 0
             importResult = ImportResult(
-                title: "导入成功",
-                message: "已导入「\(profile.name ?? "")」的健康档案，包含 \(profile.reports?.count ?? 0) 份报告和 \(profile.conditions?.count ?? 0) 条病史记录。",
+                title: L("导入成功", lang),
+                message: T("已导入「\(name)」的健康档案，包含 \(reports) 份报告和 \(conditions) 条病史记录。",
+                           "Imported \(name)'s records: \(reports) report(s) and \(conditions) condition(s).", lang),
                 profile: profile
             )
         } catch {
             importResult = ImportResult(
-                title: "导入失败",
-                message: "文件格式无效：\(error.localizedDescription)"
+                title: L("导入失败", lang),
+                message: T("文件格式无效：\(error.localizedDescription)",
+                           "Invalid file: \(error.localizedDescription)", lang)
             )
         }
     }

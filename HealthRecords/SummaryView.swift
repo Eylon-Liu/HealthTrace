@@ -25,11 +25,23 @@ struct SummaryView: View {
     @State private var doctorError: String?
     @State private var aiExpanded = false
     @State private var doctorExpanded = false
+    @State private var aiGeneratedAt: Date?
+    @State private var doctorGeneratedAt: Date?
+    @State private var aiStale = false
+    @State private var doctorStale = false
 
     private var currentProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
     private var currentAPIKey: String { currentProvider == .gemini ? geminiKey : deepseekKey }
 
     private var useEnglish: Bool { summaryLanguage == "en" }
+
+    private var profileID: String { pm.currentProfile?.id?.uuidString ?? "none" }
+    private var healthCacheKey: String { "aiGlobalSummary_\(profileID)" }
+    private var doctorCacheKey: String { "aiDoctorSummary_\(profileID)" }
+    private var currentSignature: String {
+        guard let p = pm.currentProfile else { return "" }
+        return recordsSignature(for: p, in: ctx)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,19 +49,26 @@ struct SummaryView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    aiSummarySection
+                    aiSummarySection.healthCard(padding: 14)
 
                     if !summaryText.isEmpty {
-                        Text(summaryText)
-                            .font(.system(size: 14))
-                            .lineSpacing(5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 10) {
+                            CardHeader(icon: "list.clipboard.fill",
+                                       title: T("基础摘要", "Basic Summary", summaryLanguage), color: .gray)
+                            Text(summaryText)
+                                .font(.system(size: 13))
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .healthCard(padding: 14)
                     } else {
                         EmptyStateView(icon: "list.clipboard", message: L("选择档案后生成病历摘要", summaryLanguage))
                     }
                 }
-                .padding()
+                .padding(16)
             }
+            .background(Color(.systemGroupedBackground))
         }
         .navigationTitle(L("病历摘要", summaryLanguage))
         .toolbar {
@@ -62,6 +81,8 @@ struct SummaryView: View {
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 }
+                .accessibilityLabel(T("复制", "Copy", summaryLanguage))
+                .disabled(shareText.isEmpty)
                 Button { showShare = true } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -115,12 +136,9 @@ struct SummaryView: View {
     // MARK: - AI Summary Section
 
     private var aiSummarySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "sparkles").foregroundColor(.purple)
-                Text(useEnglish ? "AI Health Summary" : "AI 健康摘要").font(.headline)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            CardHeader(icon: "sparkles", title: T("AI 摘要", "AI Summary", summaryLanguage),
+                       color: aiMode == 0 ? Theme.ai : .blue)
 
             Picker("", selection: $aiMode) {
                 Text(useEnglish ? "Health Summary" : "健康摘要").tag(0)
@@ -139,32 +157,29 @@ struct SummaryView: View {
     private var healthSummaryContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if aiSummary.isEmpty {
-                generateButton(
-                    isLoading: isGeneratingAI,
-                    title: useEnglish ? "Generate AI Health Summary" : "AI 生成健康摘要",
-                    subtitle: useEnglish ? "Analyze all reports and generate comprehensive summary" : "综合分析所有报告，生成全面健康评估"
+                AIGenerateButton(
+                    title: T("AI 生成健康摘要", "Generate AI Health Summary", summaryLanguage),
+                    subtitle: T("综合分析所有报告，生成全面健康评估",
+                                "Analyzes every report into one overall assessment", summaryLanguage),
+                    isLoading: isGeneratingAI, lang: summaryLanguage
                 ) {
                     Task { await generateAISummary() }
                 }
                 .disabled(isGeneratingAI || currentAPIKey.isEmpty)
 
-                if currentAPIKey.isEmpty {
-                    Text(useEnglish ? "Set up API key in Settings first" : "请先在设置中填写 API Key")
-                        .font(.caption).foregroundColor(.secondary)
-                }
+                if currentAPIKey.isEmpty { APIKeyHint(lang: summaryLanguage) }
             } else {
-                expandableSummaryCard(
-                    text: aiSummary,
-                    isExpanded: $aiExpanded,
-                    color: .purple,
-                    isLoading: isGeneratingAI
-                ) {
+                AIResultCard(text: aiSummary, isExpanded: $aiExpanded, accent: Theme.ai,
+                             generatedAt: aiGeneratedAt, isStale: aiStale,
+                             isLoading: isGeneratingAI, lang: summaryLanguage) {
                     Task { await generateAISummary() }
                 }
             }
 
-            errorView(error: aiError, isLoading: isGeneratingAI) {
-                Task { await generateAISummary() }
+            if let err = aiError {
+                AIErrorBanner(message: err, isLoading: isGeneratingAI, lang: summaryLanguage) {
+                    Task { await generateAISummary() }
+                }
             }
         }
     }
@@ -172,150 +187,53 @@ struct SummaryView: View {
     private var doctorSummaryContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if doctorSummary.isEmpty {
-                generateButton(
-                    isLoading: isGeneratingDoctor,
-                    title: useEnglish ? "Generate Doctor Report" : "生成医生报告",
-                    subtitle: useEnglish ? "Clinical summary organized by condition for physician review" : "按病症整理的临床摘要，供医生参考"
+                AIGenerateButton(
+                    title: T("生成医生报告", "Generate Doctor Report", summaryLanguage),
+                    subtitle: T("按病症整理的临床摘要，供医生参考",
+                                "Clinical summary by condition, for a physician", summaryLanguage),
+                    isLoading: isGeneratingDoctor, accent: .blue, lang: summaryLanguage
                 ) {
                     Task { await generateDoctorSummaryAction() }
                 }
                 .disabled(isGeneratingDoctor || currentAPIKey.isEmpty)
 
-                if currentAPIKey.isEmpty {
-                    Text(useEnglish ? "Set up API key in Settings first" : "请先在设置中填写 API Key")
-                        .font(.caption).foregroundColor(.secondary)
-                }
+                if currentAPIKey.isEmpty { APIKeyHint(lang: summaryLanguage) }
             } else {
-                expandableSummaryCard(
-                    text: doctorSummary,
-                    isExpanded: $doctorExpanded,
-                    color: .blue,
-                    isLoading: isGeneratingDoctor
-                ) {
+                AIResultCard(text: doctorSummary, isExpanded: $doctorExpanded, accent: .blue,
+                             generatedAt: doctorGeneratedAt, isStale: doctorStale,
+                             isLoading: isGeneratingDoctor, lang: summaryLanguage) {
                     Task { await generateDoctorSummaryAction() }
                 }
             }
 
-            errorView(error: doctorError, isLoading: isGeneratingDoctor) {
-                Task { await generateDoctorSummaryAction() }
-            }
-        }
-    }
-
-    private func generateButton(isLoading: Bool, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                if isLoading {
-                    ProgressView().scaleEffect(0.8)
-                    Text(useEnglish ? "Analyzing..." : "分析中...").font(.subheadline)
-                } else {
-                    Image(systemName: "sparkles")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.subheadline.weight(.semibold))
-                        Text(subtitle).font(.caption2)
-                    }
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(12)
-            .background(Color.purple.opacity(0.1))
-            .foregroundColor(.purple)
-            .cornerRadius(10)
-        }
-    }
-
-    private func expandableSummaryCard(text: String, isExpanded: Binding<Bool>, color: Color, isLoading: Bool, refreshAction: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer()
-                Button(action: refreshAction) {
-                    if isLoading {
-                        ProgressView().scaleEffect(0.7)
-                    } else {
-                        Image(systemName: "arrow.clockwise").font(.caption)
-                    }
-                }
-                .disabled(isLoading)
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.wrappedValue.toggle()
-                    }
-                } label: {
-                    Image(systemName: isExpanded.wrappedValue ? "minus" : "plus")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(color)
+            if let err = doctorError {
+                AIErrorBanner(message: err, isLoading: isGeneratingDoctor, lang: summaryLanguage) {
+                    Task { await generateDoctorSummaryAction() }
                 }
             }
-            .padding(.bottom, 4)
-
-            if isExpanded.wrappedValue {
-                Text(text)
-                    .font(.system(size: 13))
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(text)
-                    .font(.system(size: 13))
-                    .lineSpacing(4)
-                    .lineLimit(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.wrappedValue = true
-                    }
-                } label: {
-                    Text(useEnglish ? "Show more" : "展开全部")
-                        .font(.caption.weight(.medium))
-                        .foregroundColor(color)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .padding(12)
-        .background(color.opacity(0.05))
-        .cornerRadius(10)
-        .onTapGesture {
-            if !isExpanded.wrappedValue {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.wrappedValue = true
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func errorView(error: String?, isLoading: Bool, retryAction: @escaping () -> Void) -> some View {
-        if let err = error {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundColor(.orange)
-                Text(err).font(.caption).foregroundColor(.red)
-                Spacer()
-                Button(action: retryAction) {
-                    Text(useEnglish ? "Retry" : "重试")
-                        .font(.caption.weight(.medium))
-                        .foregroundColor(.blue)
-                }
-                .disabled(isLoading)
-            }
-            .padding(8)
-            .background(Color.red.opacity(0.06))
-            .cornerRadius(8)
         }
     }
 
     // MARK: - AI generation
 
     private func loadCachedSummaries() {
-        guard let id = pm.currentProfile?.id?.uuidString else {
-            aiSummary = ""
-            doctorSummary = ""
+        guard pm.currentProfile != nil else {
+            aiSummary = ""; doctorSummary = ""
+            aiGeneratedAt = nil; doctorGeneratedAt = nil
+            aiStale = false; doctorStale = false
             return
         }
-        aiSummary = UserDefaults.standard.string(forKey: "aiGlobalSummary_\(id)") ?? ""
-        doctorSummary = UserDefaults.standard.string(forKey: "aiDoctorSummary_\(id)") ?? ""
+        let signature = currentSignature
+
+        let health = AICache.load(healthCacheKey)
+        aiSummary = health?.text ?? ""
+        aiGeneratedAt = health?.generatedAt
+        aiStale = AICache.isStale(health, current: signature)
+
+        let doctor = AICache.load(doctorCacheKey)
+        doctorSummary = doctor?.text ?? ""
+        doctorGeneratedAt = doctor?.generatedAt
+        doctorStale = AICache.isStale(doctor, current: signature)
     }
 
     private func generateAISummary() async {
@@ -337,11 +255,11 @@ struct SummaryView: View {
                 profile: profile, reports: reports, conditions: conditions,
                 language: summaryLanguage, provider: currentProvider, apiKey: currentAPIKey)
             aiSummary = result
-            if let id = profile.id?.uuidString {
-                UserDefaults.standard.set(result, forKey: "aiGlobalSummary_\(id)")
-            }
+            aiGeneratedAt = Date()
+            aiStale = false
+            AICache.save(healthCacheKey, text: result, signature: currentSignature)
         } catch {
-            aiError = friendlyError(error)
+            aiError = friendlyAIError(error, useEnglish: useEnglish)
             let saved = aiError
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 if aiError == saved { aiError = nil }
@@ -369,32 +287,17 @@ struct SummaryView: View {
                 profile: profile, reports: reports, conditions: conditions,
                 language: summaryLanguage, provider: currentProvider, apiKey: currentAPIKey)
             doctorSummary = result
-            if let id = profile.id?.uuidString {
-                UserDefaults.standard.set(result, forKey: "aiDoctorSummary_\(id)")
-            }
+            doctorGeneratedAt = Date()
+            doctorStale = false
+            AICache.save(doctorCacheKey, text: result, signature: currentSignature)
         } catch {
-            doctorError = friendlyError(error)
+            doctorError = friendlyAIError(error, useEnglish: useEnglish)
             let saved = doctorError
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 if doctorError == saved { doctorError = nil }
             }
         }
         isGeneratingDoctor = false
-    }
-
-    private func friendlyError(_ error: Error) -> String {
-        let msg = error.localizedDescription
-        if msg.contains("high demand") || msg.contains("429") || msg.contains("rate") || msg.contains("quota") {
-            return useEnglish
-                ? "AI service is busy. Previous result preserved. Try again later."
-                : "AI 服务繁忙，之前的结果已保留，请稍后重试。"
-        }
-        if msg.contains("internet") || msg.contains("network") || msg.contains("offline") || msg.contains("timed out") {
-            return useEnglish
-                ? "Network error. Check your connection and try again."
-                : "网络错误，请检查网络连接后重试。"
-        }
-        return msg
     }
 
     // MARK: - Basic summary generation
