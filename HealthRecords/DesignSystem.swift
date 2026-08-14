@@ -158,6 +158,10 @@ struct AIResultCard: View {
                 .font(.caption.weight(.medium))
                 .foregroundColor(accent)
             }
+
+            // Lives on the card itself, so no AI output can ship without it.
+            Divider().padding(.top, 2)
+            AIDisclaimerNote(lang: lang)
         }
         .padding(12)
         .background(accent.opacity(0.06))

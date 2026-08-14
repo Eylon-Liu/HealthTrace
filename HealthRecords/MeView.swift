@@ -61,6 +61,23 @@ struct MeView: View {
             Section {
                 row(icon: "gearshape.fill", color: .gray,
                     title: T("设置", "Settings", lang)) { SettingsView() }
+
+                row(icon: "exclamationmark.shield.fill", color: .orange,
+                    title: T("免责声明", "Medical Disclaimer", lang)) { MedicalDisclaimerScreen() }
+
+                Link(destination: URL(string: "https://eylon-liu.github.io/HealthTrace/")!) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        Text(T("隐私政策", "Privacy Policy", lang)).foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.caption).foregroundColor(.secondary)
+                    }
+                }
             } footer: {
                 HStack {
                     Spacer()

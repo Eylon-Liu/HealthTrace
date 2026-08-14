@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HealthTrace — Privacy Policy</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c1c1e; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #FF2442; --card: #f7f7f9; --warn-bg: #fff7ed; --warn-fg: #9a3412; --warn-line: #fdba74;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0d0f; --fg: #f2f2f7; --muted: #9ca3af; --line: #2c2c2e;
+      --accent: #ff5c72; --card: #1a1a1d; --warn-bg: #2a1a0e; --warn-fg: #fdba74; --warn-line: #7c3d10;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 20px 80px;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  header { padding: 48px 0 8px; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
+  h1 { font-size: 1.9rem; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.2rem; margin: 40px 0 10px; letter-spacing: -0.01em; }
+  h3 { font-size: 1rem; margin: 24px 0 6px; }
+  .sub { color: var(--muted); font-size: .92rem; margin: 0 0 20px; }
+  .lang-sep { margin: 64px 0 0; border: 0; border-top: 1px solid var(--line); }
+  ul { padding-left: 1.25em; }
+  li { margin: 6px 0; }
+  code { background: var(--card); padding: 2px 6px; border-radius: 5px; font-size: .88em; }
+  a { color: var(--accent); }
+  .card { background: var(--card); border-radius: 12px; padding: 16px 18px; margin: 18px 0; }
+  .callout { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-line); border-radius: 12px; padding: 16px 18px; margin: 22px 0; }
+  .callout strong { display: block; margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: .93rem; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: .87rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>HealthTrace — Privacy Policy</h1>
+  <p class="sub">Last updated: 13 August 2026 · <a href="#zh">中文版本</a></p>
+</header>
+
+<p>HealthTrace is a personal health-record app for iPhone. This policy explains exactly what happens to the information you put into it.</p>
+
+<div class="card">
+  <strong>The short version.</strong>
+  <ul>
+    <li>Your records are stored <strong>only on your device</strong>. The developer operates no server and receives none of your data.</li>
+    <li>There is <strong>no account, no sign-in, no analytics, no advertising, and no tracking</strong>.</li>
+    <li>AI features are <strong>off until you supply your own API key</strong> for Google Gemini or DeepSeek. Only then, and only when you tap an AI button, is anything sent off your device — directly from your phone to that provider, under your own account.</li>
+  </ul>
+</div>
+
+<h2>1. What HealthTrace stores, and where</h2>
+<p>Everything you enter — profiles, medical reports, uploaded report files (PDFs and photos), lab values, conditions, and any AI text you have generated — is written to your device's local app storage. It is not uploaded anywhere by the app itself.</p>
+<p>If you have iCloud Backup or encrypted local backups enabled on your iPhone, this data is included in those backups, which are governed by <a href="https://www.apple.com/legal/privacy/">Apple's privacy policy</a> and not by HealthTrace.</p>
+
+<h2>2. What the developer collects</h2>
+<p><strong>Nothing.</strong> HealthTrace has no backend service. There is no telemetry, no crash reporting SDK, no analytics SDK, and no advertising SDK in the app. The developer cannot see your records, cannot see your usage, and has no ability to retrieve your data.</p>
+
+<h2>3. Third-party AI processing</h2>
+<p>HealthTrace can use an external AI provider to read your uploaded report files and to write plain-language summaries. This is optional and inactive by default.</p>
+
+<h3>How it is turned on</h3>
+<p>You must obtain your own API key from Google or DeepSeek and enter it in Settings. The key is stored on your device and is used only to authenticate your own requests. The developer never receives, sees, or proxies your key or your requests — network calls go directly from your iPhone to the provider.</p>
+
+<h3>What is sent, and when</h3>
+<p>Data is transmitted only at the moment you tap an AI action (extracting a report, or generating an analysis, health summary, doctor report, or explanation of abnormal results). Depending on the action, the request may contain:</p>
+<table>
+  <tr><th>Category</th><th>Specifics</th></tr>
+  <tr><td>Report files</td><td>The PDF or photo you uploaded, so its text can be extracted</td></tr>
+  <tr><td>Report details</td><td>Title, date, type, body part, hospital, doctor, findings, conclusion, recommendations</td></tr>
+  <tr><td>Lab results</td><td>Test names, values, units, reference ranges, and whether each is high, low or normal</td></tr>
+  <tr><td>Conditions</td><td>Condition names and their status (active, monitoring, resolved)</td></tr>
+  <tr><td>Profile details</td><td>The profile's display name, gender, and recorded allergies</td></tr>
+</table>
+<p>Nothing else is transmitted. HealthTrace does not send your device identifiers, contacts, location, photos other than the report file you chose, or any advertising identifier.</p>
+
+<h3>Who receives it</h3>
+<ul>
+  <li><strong>Google (Gemini API)</strong> — <a href="https://ai.google.dev/gemini-api/terms">API terms</a> · <a href="https://policies.google.com/privacy">privacy policy</a></li>
+  <li><strong>DeepSeek</strong> — <a href="https://platform.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.html">privacy policy</a></li>
+</ul>
+<p>Once data reaches the provider, that provider's terms and privacy policy govern how it is handled, retained, and whether it may be used to improve their models. Their retention practices differ between free and paid API tiers. Please read the terms of the account whose key you are using before enabling AI features on sensitive records.</p>
+
+<div class="callout">
+  <strong>Please consider this before enabling AI features.</strong>
+  Health information is sensitive. Sending it to a third-party AI provider is a decision only you can make, and HealthTrace deliberately requires a deliberate opt-in — your own key — so that it is never made for you. You can use every other part of the app without ever configuring a key.
+</div>
+
+<h2>4. Data you export or share</h2>
+<p>You can export a profile as a JSON backup file and share summaries through the iOS share sheet. Once you send a file or text somewhere, it leaves the app's control and is governed by wherever you sent it.</p>
+
+<h2>5. Deleting your data</h2>
+<ul>
+  <li>Delete an individual profile in the app to remove its records, attached files, and cached AI text.</li>
+  <li>Delete the app from your iPhone to remove all HealthTrace data from the device.</li>
+  <li>To remove data already processed by Google or DeepSeek, contact that provider or manage it in your account with them — the developer has no access to it.</li>
+</ul>
+
+<h2>6. Children</h2>
+<p>HealthTrace is not directed at children under 13, and the developer does not knowingly collect information from anyone, of any age, because no information is collected at all. An adult may create a profile for a child; that profile is stored locally on the adult's device like any other.</p>
+
+<h2>7. Medical disclaimer</h2>
+<p>HealthTrace is a personal record-keeping and organisation tool. It is not a medical device. It does not provide medical advice, diagnosis, or treatment, and AI-generated text is for general information only and may be incomplete or incorrect. Always consult a qualified healthcare professional about your results and before making any health decision. Never delay or disregard professional medical advice because of something you read in this app. In an emergency, call your local emergency number.</p>
+
+<h2>8. Changes</h2>
+<p>If this policy changes materially, the "last updated" date above will change and the revised policy will be published at this address.</p>
+
+<h2>9. Contact</h2>
+<p>Questions about this policy: <a href="mailto:liuxy.eylon2012@gmail.com">liuxy.eylon2012@gmail.com</a></p>
+
+<hr class="lang-sep" id="zh">
+
+<header>
+  <h1>HealthTrace — 隐私政策</h1>
+  <p class="sub">最后更新：2026 年 8 月 13 日 · <a href="#">English version</a></p>
+</header>
+
+<p>HealthTrace 是一款 iPhone 个人健康档案应用。本政策说明你录入的信息究竟会经历什么。</p>
+
+<div class="card">
+  <strong>简要说明</strong>
+  <ul>
+    <li>你的记录<strong>仅保存在你的设备上</strong>。开发者没有任何服务器，也不会收到你的任何数据。</li>
+    <li><strong>无账号、无登录、无统计分析、无广告、无追踪。</strong></li>
+    <li>AI 功能<strong>在你填写自己的 Google Gemini 或 DeepSeek API Key 之前处于关闭状态</strong>。只有在你主动点击 AI 按钮时，数据才会离开设备，并且是从你的手机直接发送给该服务商、使用你自己的账号。</li>
+  </ul>
+</div>
+
+<h2>1. 存储什么、存在哪里</h2>
+<p>你录入的全部内容——档案、检查报告、上传的报告文件（PDF 与照片）、检验数值、病史记录，以及你生成过的 AI 文本——都写入设备本地的应用存储空间。应用本身不会将其上传到任何地方。</p>
+<p>如果你的 iPhone 开启了 iCloud 备份或加密的本地备份，这些数据会包含在备份中。备份适用<a href="https://www.apple.com/legal/privacy/">苹果的隐私政策</a>，不受 HealthTrace 管辖。</p>
+
+<h2>2. 开发者收集什么</h2>
+<p><strong>不收集任何内容。</strong>HealthTrace 没有后端服务，应用中不含任何遥测、崩溃上报 SDK、统计分析 SDK 或广告 SDK。开发者看不到你的记录，看不到你的使用情况，也无法取回你的数据。</p>
+
+<h2>3. 第三方 AI 处理</h2>
+<p>HealthTrace 可以调用外部 AI 服务来识别你上传的报告文件，并撰写通俗易懂的摘要。此功能为可选，默认不启用。</p>
+
+<h3>如何启用</h3>
+<p>你需要自行从 Google 或 DeepSeek 获取 API Key 并填入设置中。该 Key 保存在你的设备上，仅用于验证你自己的请求。开发者不会收到、看到或中转你的 Key 与请求——网络请求由你的 iPhone 直接发往服务商。</p>
+
+<h3>发送什么、何时发送</h3>
+<p>只有在你点击 AI 操作（提取报告、生成分析 / 健康摘要 / 医生报告 / 异常指标解读）的那一刻才会传输数据。根据操作不同，请求可能包含：</p>
+<table>
+  <tr><th>类别</th><th>具体内容</th></tr>
+  <tr><td>报告文件</td><td>你上传的 PDF 或照片，用于提取其中的文字</td></tr>
+  <tr><td>报告信息</td><td>标题、日期、类型、检查部位、医院、医生、检查发现、结论、建议</td></tr>
+  <tr><td>检验结果</td><td>项目名称、数值、单位、参考范围，以及偏高 / 偏低 / 正常的判定</td></tr>
+  <tr><td>病史记录</td><td>病症名称及其状态（活跃中、观察中、已解决）</td></tr>
+  <tr><td>档案信息</td><td>档案的显示名称、性别、已记录的过敏史</td></tr>
+</table>
+<p>除此之外不会传输任何内容。HealthTrace 不会发送设备标识符、通讯录、位置信息、你所选报告文件之外的照片，或任何广告标识符。</p>
+
+<h3>数据发往何处</h3>
+<ul>
+  <li><strong>Google（Gemini API）</strong> — <a href="https://ai.google.dev/gemini-api/terms">API 条款</a> · <a href="https://policies.google.com/privacy">隐私政策</a></li>
+  <li><strong>DeepSeek</strong> — <a href="https://platform.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.html">隐私政策</a></li>
+</ul>
+<p>数据到达服务商之后，其处理、留存方式，以及是否可能被用于改进模型，均由该服务商的条款和隐私政策决定。免费与付费 API 层级的留存策略通常并不相同。在对敏感记录启用 AI 功能之前，请先阅读你所使用账号对应的条款。</p>
+
+<div class="callout">
+  <strong>启用 AI 功能前请慎重考虑</strong>
+  健康信息属于敏感信息。是否将其发送给第三方 AI 服务，只能由你自己决定。HealthTrace 特意要求你主动填写自己的 API Key，就是为了确保这个决定不会被代替你做出。即使从不配置 Key，应用的其他所有功能也都可以正常使用。
+</div>
+
+<h2>4. 导出与分享的数据</h2>
+<p>你可以将档案导出为 JSON 备份文件，也可以通过 iOS 分享面板分享摘要。文件或文本一经发出即脱离应用的控制，适用你发送目的地的相关规则。</p>
+
+<h2>5. 删除数据</h2>
+<ul>
+  <li>在应用内删除某个档案，即可移除其记录、附件文件与缓存的 AI 文本。</li>
+  <li>从 iPhone 上删除应用，即可移除设备上全部 HealthTrace 数据。</li>
+  <li>如需删除已被 Google 或 DeepSeek 处理的数据，请联系该服务商或在你的账号中自行管理——开发者无权访问这些数据。</li>
+</ul>
+
+<h2>6. 未成年人</h2>
+<p>HealthTrace 并非面向 13 岁以下儿童。由于应用完全不收集任何信息，开发者不会在不知情的情况下收集任何年龄段用户的信息。成年人可以为儿童创建档案，该档案与其他档案一样仅保存在该成年人的设备本地。</p>
+
+<h2>7. 医疗免责声明</h2>
+<p>HealthTrace 是个人健康档案的记录与整理工具，不是医疗器械，不提供医疗建议、诊断或治疗方案。AI 生成的内容仅供一般参考，可能不完整或有误。请就检查结果咨询专业医护人员，并在做出任何健康决定前听取专业意见。请勿因本应用中的内容而延误或忽视专业医疗意见。紧急情况请立即拨打当地急救电话。</p>
+
+<h2>8. 政策变更</h2>
+<p>如本政策发生重大变更，上方的“最后更新”日期将随之更新，修订后的政策将发布于本网址。</p>
+
+<h2>9. 联系方式</h2>
+<p>关于本政策的疑问：<a href="mailto:liuxy.eylon2012@gmail.com">liuxy.eylon2012@gmail.com</a></p>
+
+<footer>
+  HealthTrace · Records stay on your device · 记录只存在你的设备上
+</footer>
+
+</main>
+</body>
+</html>

@@ -8,10 +8,18 @@ struct HealthRecordsApp: App {
     @StateObject private var pm = ProfileManager()
     @State private var importResult: ImportResult?
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("acceptedDisclaimerVersion") private var acceptedDisclaimerVersion = 0
+
+    private var disclaimerAccepted: Bool { acceptedDisclaimerVersion >= MedicalDisclaimer.version }
 
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
+            // Onboarding covers the disclaimer for new installs. Existing users who
+            // already finished onboarding still have to acknowledge it once, and
+            // again if the wording is ever materially revised.
+            if hasCompletedOnboarding && !disclaimerAccepted {
+                DisclaimerGateView { acceptedDisclaimerVersion = MedicalDisclaimer.version }
+            } else if hasCompletedOnboarding {
                 ContentView()
                     .environment(\.managedObjectContext, persistence.container.viewContext)
                     .environmentObject(pm)
@@ -31,6 +39,7 @@ struct HealthRecordsApp: App {
                     }
             } else {
                 OnboardingView(onComplete: {
+                    acceptedDisclaimerVersion = MedicalDisclaimer.version
                     hasCompletedOnboarding = true
                 })
                 .environment(\.managedObjectContext, persistence.container.viewContext)
@@ -80,6 +89,7 @@ struct OnboardingView: View {
     @State private var networkReady = false
     @State private var cameraGranted = false
     @State private var photosGranted = false
+    @State private var agreedToDisclaimer = false
 
     private var useEN: Bool { lang == "en" }
 
@@ -87,11 +97,48 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             TabView(selection: $currentPage) {
                 welcomePage.tag(0)
-                permissionPage.tag(1)
-                readyPage.tag(2)
+                disclaimerPage.tag(1)
+                permissionPage.tag(2)
+                readyPage.tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
+        }
+    }
+
+    /// The disclaimer is its own step, and the final button stays disabled until
+    /// it is acknowledged — swiping past it is not enough to get into the app.
+    private var disclaimerPage: some View {
+        VStack(spacing: 20) {
+            Spacer(minLength: 20)
+
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.orange)
+            Text(MedicalDisclaimer.title(lang))
+                .font(.title2.bold())
+
+            ScrollView {
+                DisclaimerBody(lang: lang).padding(.horizontal, 28)
+            }
+
+            Button {
+                agreedToDisclaimer = true
+                withAnimation { currentPage = 2 }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: agreedToDisclaimer ? "checkmark.circle.fill" : "circle")
+                    Text(useEN ? "I have read and understand" : "我已阅读并理解")
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(.blue)
+                .foregroundColor(.white)
+                .cornerRadius(14)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
         }
     }
 
@@ -185,7 +232,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 32)
 
             Button {
-                withAnimation { currentPage = 2 }
+                withAnimation { currentPage = 3 }
             } label: {
                 Text(useEN ? "Skip for now" : "暂时跳过")
                     .font(.subheadline)
@@ -220,12 +267,24 @@ struct OnboardingView: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(.green)
+                    .background(agreedToDisclaimer ? Color.green : Color.gray.opacity(0.4))
                     .foregroundColor(.white)
                     .cornerRadius(14)
             }
+            .disabled(!agreedToDisclaimer)
             .padding(.horizontal, 32)
-            .padding(.bottom, 40)
+
+            if !agreedToDisclaimer {
+                Button {
+                    withAnimation { currentPage = 1 }
+                } label: {
+                    Text(useEN ? "Please review the disclaimer first" : "请先阅读并确认免责声明")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+
+            Spacer().frame(height: 40)
         }
     }
 
@@ -268,7 +327,7 @@ struct OnboardingView: View {
         triggerNetworkPermission()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation { currentPage = 2 }
+            withAnimation { currentPage = 3 }
         }
     }
 

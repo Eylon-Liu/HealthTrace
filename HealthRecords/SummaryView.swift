@@ -116,6 +116,10 @@ struct SummaryView: View {
         if !summaryText.isEmpty {
             parts.append(useEnglish ? "【Basic Summary】\n\(summaryText)" : "【基础摘要】\n\(summaryText)")
         }
+        guard !parts.isEmpty else { return "" }
+        // Travels with the text: a summary handed to a doctor or pasted into a
+        // message should carry the same caveat the screen shows.
+        parts.append("— " + MedicalDisclaimer.shortNote(summaryLanguage))
         return parts.joined(separator: "\n\n")
     }
 
