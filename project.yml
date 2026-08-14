@@ -29,7 +29,7 @@ targets:
         # "1.0"/"1", which is what pinned archives to 1.0 no matter what Xcode showed.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        CFBundleDisplayName: HealthTrace
+        CFBundleDisplayName: FamilyVitals
         UIRequiresFullScreen: false
         NSPhotoLibraryUsageDescription: 用于上传医疗报告图片
         NSPhotoLibraryAddUsageDescription: 用于保存医疗报告

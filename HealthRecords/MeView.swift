@@ -81,7 +81,7 @@ struct MeView: View {
             } footer: {
                 HStack {
                     Spacer()
-                    Text("HealthTrace \(appVersionString)")
+                    Text("FamilyVitals \(appVersionString)")
                         .font(.caption2).foregroundColor(.secondary)
                     Spacer()
                 }

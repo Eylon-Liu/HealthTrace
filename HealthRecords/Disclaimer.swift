@@ -15,8 +15,8 @@ enum MedicalDisclaimer {
     }
 
     static func lead(_ lang: String) -> String {
-        T("HealthTrace 是个人健康档案的记录与整理工具，不是医疗器械，不提供医疗建议、诊断或治疗方案。",
-          "HealthTrace is a personal record-keeping tool. It is not a medical device and does not provide medical advice, diagnosis, or treatment.",
+        T("FamilyVitals 是个人健康档案的记录与整理工具，不是医疗器械，不提供医疗建议、诊断或治疗方案。",
+          "FamilyVitals is a personal record-keeping tool. It is not a medical device and does not provide medical advice, diagnosis, or treatment.",
           lang)
     }
 

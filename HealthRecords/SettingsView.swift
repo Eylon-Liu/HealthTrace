@@ -42,13 +42,16 @@ struct SettingsView: View {
                         .textContentType(.password)
                         .autocorrectionDisabled()
 
-                    Picker("Gemini 模型", selection: $geminiModel) {
-                        Text("Gemini 3.5 Flash（最推荐）").tag("gemini-3.5-flash")
+                    Picker(T("Gemini 模型", "Gemini model", summaryLanguage), selection: $geminiModel) {
+                        Text(T("Gemini 3.5 Flash（推荐）", "Gemini 3.5 Flash (recommended)", summaryLanguage))
+                            .tag("gemini-3.5-flash")
                         Text("Gemini 3.5 Flash Lite").tag("gemini-3.5-flash-lite")
                     }
                     .pickerStyle(.menu)
 
-                    Text("推荐：gemini-3.5-flash（速度与高质量推理，Free Tier 免费开放）\n可选：gemini-3.5-flash-lite（更省）\n支持原生多模态：文本 / 图像 / 音视频\n前往 aistudio.google.com 免费获取")
+                    Text(T("推荐 gemini-3.5-flash：速度快、推理质量高，免费额度可用。\ngemini-3.5-flash-lite 更省额度。\n支持文本、图像与音视频。\n前往 aistudio.google.com 免费获取。",
+                           "gemini-3.5-flash is recommended: fast, good reasoning, and usable on the free tier.\ngemini-3.5-flash-lite uses less quota.\nHandles text, images, audio and video.\nGet a key free at aistudio.google.com.",
+                           summaryLanguage))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -62,7 +65,9 @@ struct SettingsView: View {
                     SecureField("sk-...", text: $deepseekKey)
                         .textContentType(.password)
                         .autocorrectionDisabled()
-                    Text("模型：deepseek-chat（最便宜）\n仅支持文字 PDF（不支持照片）\n前往 platform.deepseek.com 获取")
+                    Text(T("模型：deepseek-chat，费用最低。\n仅支持文字版 PDF，不支持照片。\n前往 platform.deepseek.com 获取。",
+                           "Uses deepseek-chat, the cheapest option.\nText PDFs only — it cannot read photos.\nGet a key at platform.deepseek.com.",
+                           summaryLanguage))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -134,7 +139,7 @@ struct SettingsView: View {
         }) {
             ExportProfilePicker { selectedData in
                 exportURL = nil
-                if let data = selectedData, let url = saveToTemp(data: data, name: "HealthTrace_备份.json") {
+                if let data = selectedData, let url = saveToTemp(data: data, name: "FamilyVitals_备份.json") {
                     exportData = data
                     exportURL = url
                 }

@@ -35,7 +35,7 @@ enum AIProvider: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .gemini: return "Gemini (推荐)"
+        case .gemini: return T("Gemini（推荐）", "Gemini (recommended)", currentLang())
         case .deepseek: return "DeepSeek"
         }
     }

@@ -148,7 +148,7 @@ struct OnboardingView: View {
             Image(systemName: "heart.text.clipboard")
                 .font(.system(size: 72))
                 .foregroundColor(.blue)
-            Text("HealthTrace")
+            Text("FamilyVitals")
                 .font(.largeTitle.bold())
             Text(useEN
                  ? "Your personal health records manager.\nAll data is stored locally on your device."
