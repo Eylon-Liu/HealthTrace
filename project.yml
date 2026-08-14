@@ -18,7 +18,7 @@ targets:
         # Keep the shipping version and signing here, not only in Xcode's UI —
         # `xcodegen generate` rewrites the project and would otherwise reset them.
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "4"
         DEVELOPMENT_TEAM: F24GFVNJ58
         CODE_SIGN_IDENTITY: iPhone Developer
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.healthcare-fitness
@@ -29,6 +29,10 @@ targets:
         # "1.0"/"1", which is what pinned archives to 1.0 no matter what Xcode showed.
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # The app talks to Gemini/DeepSeek over standard HTTPS via URLSession and
+        # implements no cryptography of its own, so it is exempt. Declaring it here
+        # stops every upload from landing in App Store Connect as "Missing Compliance".
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDisplayName: FamilyVitals
         UIRequiresFullScreen: false
         NSPhotoLibraryUsageDescription: 用于上传医疗报告图片
