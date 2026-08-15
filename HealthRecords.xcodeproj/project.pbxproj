@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CDCC346ACEBD2BE01A7B0696 /* BatchImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BFE086FA0CC70EEEEE7D33 /* BatchImportView.swift */; };
+		E5BD3E78DB86B4163CEF4554 /* ImportKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AF31489355D5DBFF9AEBABA /* ImportKit.swift */; };
 		2727603844B5EE7EA5B2B032 /* Disclaimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B8C7AE35745C99767FDB /* Disclaimer.swift */; };
 		CBD221D348116C2DC73A3077 /* MeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0370CBA94F8A0F54EEA804E1 /* MeView.swift */; };
 		E312154DC038A8AC020A46CD /* LabData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF7402C13402A51B9694F1A /* LabData.swift */; };
@@ -34,6 +36,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		64BFE086FA0CC70EEEEE7D33 /* BatchImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchImportView.swift; sourceTree = "<group>"; };
+		8AF31489355D5DBFF9AEBABA /* ImportKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportKit.swift; sourceTree = "<group>"; };
 		2907B8C7AE35745C99767FDB /* Disclaimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Disclaimer.swift; sourceTree = "<group>"; };
 		0370CBA94F8A0F54EEA804E1 /* MeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeView.swift; sourceTree = "<group>"; };
 		FBF7402C13402A51B9694F1A /* LabData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabData.swift; sourceTree = "<group>"; };
@@ -66,6 +70,8 @@
 		5277ADEE48F6055AFF133261 /* HealthRecords */ = {
 			isa = PBXGroup;
 			children = (
+				64BFE086FA0CC70EEEEE7D33 /* BatchImportView.swift */,
+				8AF31489355D5DBFF9AEBABA /* ImportKit.swift */,
 				2907B8C7AE35745C99767FDB /* Disclaimer.swift */,
 				0370CBA94F8A0F54EEA804E1 /* MeView.swift */,
 				FBF7402C13402A51B9694F1A /* LabData.swift */,
@@ -176,6 +182,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CDCC346ACEBD2BE01A7B0696 /* BatchImportView.swift in Sources */,
+				E5BD3E78DB86B4163CEF4554 /* ImportKit.swift in Sources */,
 				2727603844B5EE7EA5B2B032 /* Disclaimer.swift in Sources */,
 				CBD221D348116C2DC73A3077 /* MeView.swift in Sources */,
 				E312154DC038A8AC020A46CD /* LabData.swift in Sources */,

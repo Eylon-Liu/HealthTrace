@@ -47,7 +47,7 @@ struct ContentView: View {
             AddProfileView()
         }
         .sheet(isPresented: $showAddReport) {
-            AddReportView(profile: pm.currentProfile)
+            BatchImportView(profile: pm.currentProfile)
         }
         .onAppear { restoreProfileSelection() }
         .onChange(of: profiles.count) { _ in

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import UniformTypeIdentifiers
 import PDFKit
 import SwiftUI
@@ -17,6 +18,35 @@ struct ExtractedReport: Codable {
     var conclusion: String?
     var recommendations: String?
     var lab_values: [ExtractedLabValue]?
+    /// Diagnoses stated in the report, to be turned into conditions to monitor.
+    var conditions: [ExtractedCondition]?
+    /// 1-based indices of the uploaded files this report was built from, so a
+    /// batch import can attach the right pages to the right entry.
+    var source_files: [Int]?
+}
+
+/// A diagnosis the report states outright — not an inference from a lab value.
+struct ExtractedCondition: Codable {
+    var name: String?
+    var category: String?
+    /// "chronic" (lifelong, no end date) or "temporary" (expected to resolve).
+    var chronicity: String?
+    var date_onset: String?
+    /// Only for temporary conditions: when it is expected to have cleared.
+    var expected_end: String?
+    var severity: String?
+    var restrictions: String?
+    var notes: String?
+
+    var isChronic: Bool { (chronicity ?? "").lowercased() != "temporary" }
+}
+
+/// How a set of uploaded files should be interpreted.
+enum ImportMode: String, CaseIterable {
+    /// Every file is a page of one report.
+    case singleReport
+    /// The files cover more than one exam; the model decides the grouping.
+    case separateReports
 }
 
 struct ExtractedLabValue: Codable {
@@ -96,6 +126,18 @@ private let extractionPrompt = """
   "recommendations": "建议/注意事项或null",
   "lab_values": [
     {"name": "项目名称", "value": "数值", "unit": "单位", "ref_range": "参考范围", "status": "normal/high/low/critical"}
+  ],
+  "conditions": [
+    {
+      "name": "诊断名称（如：海鲜过敏、2型糖尿病、急性上呼吸道感染）",
+      "category": "过敏/慢性病/感染/损伤/术后/其他",
+      "chronicity": "chronic或temporary",
+      "date_onset": "YYYY-MM-DD或null",
+      "expected_end": "YYYY-MM-DD或null",
+      "severity": "mild/moderate/severe或null",
+      "restrictions": "需要避免的事项（如：避免海鲜）或null",
+      "notes": "简短说明或null"
+    }
   ]
 }
 
@@ -104,6 +146,13 @@ private let extractionPrompt = """
 - status字段：在参考范围内为normal，高于为high，低于为low，严重异常为critical
 - 影像报告如果没有检验数值，lab_values为空数组[]
 - 如果报告包含体检总结和实验室检查，请提取所有数值
+
+conditions（诊断）规则：
+- 只提取报告中明确写出的诊断、过敏或既往病史，不要自行推测
+- chronic＝长期或终身存在：食物/药物过敏、糖尿病、高血压、哮喘、慢性肾病、甲状腺疾病等。chronic 的 expected_end 必须为 null
+- temporary＝可痊愈的急性情况：病毒性感冒、流感、急性肠胃炎、扭伤、伤口感染等。temporary 必须给出 expected_end：报告写明疗程就用报告的，没写就从报告日期按常见病程推算（例如病毒性上呼吸道感染约 7-10 天）
+- 检验数值异常本身不是诊断，不要写进 conditions（例如"白细胞偏高"不算诊断）
+- 报告没有任何诊断时，conditions 返回空数组 []
 """
 
 // MARK: - Main extraction function
@@ -122,6 +171,226 @@ func extractReportFromFile(_ url: URL, provider: AIProvider, apiKey: String) asy
     case .deepseek:
         return try await extractWithDeepSeek(url: url, ext: ext, apiKey: apiKey)
     }
+}
+
+// MARK: - Batch extraction
+//
+// Everything the user picked goes up in one request so the model can see the
+// whole set at once. That is what lets it tell "pages 1-3 are one blood panel,
+// page 4 is a separate visit summary" — a per-file loop never can.
+
+private func batchInstructions(mode: ImportMode, fileCount: Int) -> String {
+    let grouping: String
+    switch mode {
+    case .singleReport:
+        grouping = """
+        这 \(fileCount) 个文件是同一份报告的不同页（例如一份血检报告的多页）。
+        请把它们合并成一份报告：reports 数组长度必须为 1，source_files 列出全部文件序号。
+        """
+    case .separateReports:
+        grouping = """
+        这 \(fileCount) 个文件可能来自不同的检查。请判断哪些页属于同一份报告：
+        - 同一次检查的多页（页码连续、医院与日期相同、项目接续）合并为一个 report 对象
+        - 不同的检查各自作为独立的 report 对象
+        - 每个 report 都必须填写 source_files，列出它用到的文件序号（从 1 开始，不要遗漏或重复）
+        """
+    }
+
+    return """
+    \(extractionPrompt)
+
+    ——————
+    本次一共上传了 \(fileCount) 个文件，按顺序编号 1 到 \(fileCount)。
+    \(grouping)
+
+    最终只返回一个 JSON 对象，格式为：
+    {"reports": [ {上面描述的报告对象，并额外包含 "source_files": [1,2]} ]}
+    不要返回任何其他文字。
+    """
+}
+
+private struct BatchExtractionResult: Codable {
+    var reports: [ExtractedReport]?
+}
+
+/// Reads every file in one request and returns one draft per report found.
+func extractReports(from urls: [URL], mode: ImportMode,
+                    provider: AIProvider, apiKey: String) async throws -> [ExtractedReport] {
+    guard !apiKey.isEmpty else { throw AIError.noAPIKey }
+    guard !urls.isEmpty else { return [] }
+
+    // One file is just the existing single-report path.
+    if urls.count == 1 {
+        var one = try await extractReportFromFile(urls[0], provider: provider, apiKey: apiKey)
+        one.source_files = [1]
+        return [one]
+    }
+
+    switch provider {
+    case .gemini:
+        return try await extractBatchWithGemini(urls: urls, mode: mode, apiKey: apiKey)
+    case .deepseek:
+        return try await extractBatchWithDeepSeek(urls: urls, mode: mode, apiKey: apiKey)
+    }
+}
+
+private func extractBatchWithGemini(urls: [URL], mode: ImportMode, apiKey: String) async throws -> [ExtractedReport] {
+    var parts: [[String: Any]] = []
+
+    for (i, url) in urls.enumerated() {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+        let ext = url.pathExtension.lowercased()
+        parts.append(["text": "【文件 \(i + 1)：\(url.lastPathComponent)】"])
+
+        if ext == "pdf" {
+            let data = try Data(contentsOf: url)
+            parts.append(["inlineData": ["mimeType": "application/pdf",
+                                         "data": data.base64EncodedString()]])
+        } else {
+            // Photos come off the camera at 12MP+. Sending them raw makes the
+            // request enormous and slow without helping the model read the page.
+            let data = try downscaledJPEG(at: url)
+            parts.append(["inlineData": ["mimeType": "image/jpeg",
+                                         "data": data.base64EncodedString()]])
+        }
+    }
+
+    parts.append(["text": batchInstructions(mode: mode, fileCount: urls.count)])
+
+    let body: [String: Any] = ["contents": [["parts": parts]]]
+    let model = AIProvider.gemini.modelName
+    let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+    var req = URLRequest(url: URL(string: endpoint)!)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "content-type")
+    req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    req.timeoutInterval = 180
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+    if http.statusCode != 200 {
+        let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(http.statusCode)"
+        throw AIError.apiError("Gemini: \(errMsg)")
+    }
+
+    guard
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let candidates = json["candidates"] as? [[String: Any]],
+        let content = candidates.first?["content"] as? [String: Any],
+        let responseParts = content["parts"] as? [[String: Any]],
+        let text = responseParts.first?["text"] as? String
+    else { throw AIError.parseError }
+
+    return try parseBatchResponse(text, fileCount: urls.count)
+}
+
+private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: String) async throws -> [ExtractedReport] {
+    var sections: [String] = []
+
+    for (i, url) in urls.enumerated() {
+        guard url.pathExtension.lowercased() == "pdf" else {
+            throw AIError.unsupportedFormat("DeepSeek 不支持图片识别，请切换到 Gemini，或只上传文字版 PDF。")
+        }
+        guard let pdfDoc = PDFDocument(url: url) else {
+            throw AIError.unsupportedFormat("无法读取 PDF：\(url.lastPathComponent)")
+        }
+        var pages: [String] = []
+        for p in 0..<pdfDoc.pageCount {
+            if let page = pdfDoc.page(at: p), let s = page.string, !s.isEmpty { pages.append(s) }
+        }
+        let body = pages.joined(separator: "\n")
+        if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw AIError.unsupportedFormat("\(url.lastPathComponent) 是扫描件，无法提取文字。请切换到 Gemini。")
+        }
+        sections.append("【文件 \(i + 1)：\(url.lastPathComponent)】\n\(body)")
+    }
+
+    let prompt = batchInstructions(mode: mode, fileCount: urls.count)
+        + "\n\n以下是全部文件的内容：\n\n" + sections.joined(separator: "\n\n——————\n\n")
+
+    let body: [String: Any] = [
+        "model": "deepseek-chat",
+        "messages": [["role": "user", "content": prompt]],
+        "max_tokens": 8192
+    ]
+
+    var req = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
+    req.httpMethod = "POST"
+    req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    req.setValue("application/json", forHTTPHeaderField: "content-type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    req.timeoutInterval = 180
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+    if http.statusCode != 200 {
+        let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(http.statusCode)"
+        throw AIError.apiError("DeepSeek: \(errMsg)")
+    }
+
+    guard
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let choices = json["choices"] as? [[String: Any]],
+        let message = choices.first?["message"] as? [String: Any],
+        let text = message["content"] as? String
+    else { throw AIError.parseError }
+
+    return try parseBatchResponse(text, fileCount: urls.count)
+}
+
+private func parseBatchResponse(_ raw: String, fileCount: Int) throws -> [ExtractedReport] {
+    var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if cleaned.hasPrefix("```") {
+        cleaned = cleaned.components(separatedBy: "\n").dropFirst().joined(separator: "\n")
+        if cleaned.hasSuffix("```") { cleaned = String(cleaned.dropLast(3)) }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    guard let jsonData = cleaned.data(using: .utf8) else { throw AIError.parseError }
+
+    var reports: [ExtractedReport]
+    if let batch = try? JSONDecoder().decode(BatchExtractionResult.self, from: jsonData),
+       let list = batch.reports, !list.isEmpty {
+        reports = list
+    } else if let single = try? JSONDecoder().decode(ExtractedReport.self, from: jsonData) {
+        // The model sometimes answers with a bare report object when it finds only one.
+        reports = [single]
+    } else {
+        throw AIError.parseError
+    }
+
+    // Never trust indices from the model: drop out-of-range ones, and give any
+    // report that came back without them every file rather than no file.
+    for i in reports.indices {
+        let valid = (reports[i].source_files ?? []).filter { $0 >= 1 && $0 <= fileCount }
+        reports[i].source_files = valid.isEmpty ? Array(1...fileCount) : Array(Set(valid)).sorted()
+    }
+    return reports
+}
+
+// MARK: - Image downscaling
+
+/// Re-encodes a photo at a size the model can still read, keeping requests small
+/// enough to survive a phone connection.
+func downscaledJPEG(at url: URL, maxDimension: CGFloat = 1600, quality: CGFloat = 0.7) throws -> Data {
+    guard let image = UIImage(contentsOfFile: url.path) else {
+        return try Data(contentsOf: url)
+    }
+    let longest = max(image.size.width, image.size.height)
+    guard longest > maxDimension else {
+        if let data = image.jpegData(compressionQuality: quality) { return data }
+        return try Data(contentsOf: url)
+    }
+    let scale = maxDimension / longest
+    let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let renderer = UIGraphicsImageRenderer(size: newSize)
+    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+    if let data = resized.jpegData(compressionQuality: quality) { return data }
+    return try Data(contentsOf: url)
 }
 
 // MARK: - Gemini
