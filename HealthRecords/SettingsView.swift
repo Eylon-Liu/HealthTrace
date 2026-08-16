@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("gemini_model") private var geminiModel = "gemini-3.5-flash"
     @AppStorage("qwen_api_key") private var qwenKey = ""
     @AppStorage("qwen_model") private var qwenModel = "qwen-vl-max"
+    @AppStorage("qwen_base_url") private var qwenBaseURL = ""
     @AppStorage("summaryLanguage") private var summaryLanguage = "zh"
     @State private var showImport = false
     @State private var exportData: Data?
@@ -77,8 +78,14 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.menu)
 
-                    Text(T("国内可直接访问，无需梯子。能识别照片和扫描件。\n前往 bailian.console.aliyun.com 获取 API Key。",
-                           "Reachable from mainland China without a VPN. Reads photos and scans.\nGet a key at bailian.console.aliyun.com.",
+                    TextField(T("API 地址（可留空）", "API host (optional)", summaryLanguage),
+                              text: $qwenBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+
+                    Text(T("国内可直接访问，无需梯子。能识别照片和扫描件。\n前往 bailian.console.aliyun.com 获取 API Key。\n如果 Key 是在工作空间里创建的（sk-ws- 开头），把创建时弹窗里的 API 地址一并填上。",
+                           "Reachable from mainland China without a VPN. Reads photos and scans.\nGet a key at bailian.console.aliyun.com.\nIf the key was created inside a workspace (starts with sk-ws-), also paste the API host shown when it was created.",
                            summaryLanguage))
                         .font(.caption2)
                         .foregroundColor(.secondary)

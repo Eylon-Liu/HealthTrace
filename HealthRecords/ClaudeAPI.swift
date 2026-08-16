@@ -333,12 +333,7 @@ private func completeText(prompt: String, provider: AIProvider, apiKey: String) 
 
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
-        if http.statusCode != 200 {
-            let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String
-                ?? (errJson?["message"] as? String) ?? "HTTP \(http.statusCode)"
-            throw AIError.apiError("通义千问: \(errMsg)")
-        }
+        if http.statusCode != 200 { throw qwenError(status: http.statusCode, data: data) }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],
               let first = choices.first,
@@ -418,7 +413,45 @@ private func completeText(prompt: String, provider: AIProvider, apiKey: String) 
 // left photographed and scanned reports with nothing that works there. Qwen-VL
 // runs on Alibaba's DashScope and speaks the OpenAI-compatible shape.
 
-private let qwenEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+// Most accounts use the shared DashScope host. Keys created inside a workspace
+// (they start with "sk-ws-") are issued with their own host instead, and the
+// shared one rejects them — so the host has to be settable, not hardcoded.
+private let qwenDefaultEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+/// Accepts whichever of the three forms Alibaba's key dialog shows — bare host,
+/// OpenAI-compatible base, or full path — and returns a URL we can POST to.
+func qwenChatEndpoint(_ raw: String) -> String {
+    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !s.isEmpty else { return qwenDefaultEndpoint }
+
+    while s.hasSuffix("/") { s.removeLast() }
+    if !s.contains("://") { s = "https://" + s }
+
+    if s.hasSuffix("/chat/completions") { return s }
+    // The dialog lists a DashScope-native base next to the compatible one; the
+    // native path speaks a different shape, so steer a mis-paste to the right one.
+    if s.hasSuffix("/api/v1") { s = String(s.dropLast("/api/v1".count)) + "/compatible-mode/v1" }
+    if s.hasSuffix("/compatible-mode/v1") { return s + "/chat/completions" }
+    return s + "/compatible-mode/v1/chat/completions"
+}
+
+private var qwenEndpoint: String {
+    qwenChatEndpoint(UserDefaults.standard.string(forKey: "qwen_base_url") ?? "")
+}
+
+/// A rejection from Qwen is more often the wrong host than the wrong key, so
+/// name the host rather than leaving the user re-copying a key that was fine.
+private func qwenError(status: Int, data: Data) -> AIError {
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    let msg = (json?["error"] as? [String: Any])?["message"] as? String
+        ?? (json?["message"] as? String) ?? "HTTP \(status)"
+    guard [401, 403, 404].contains(status) else { return .apiError("通义千问: \(msg)") }
+
+    let host = URL(string: qwenEndpoint)?.host ?? qwenEndpoint
+    return .apiError(T("通义千问（\(host)）：\(msg)\n如果 API Key 是在工作空间里创建的，请把它自带的 API 地址填到设置里。",
+                       "Qwen (\(host)): \(msg)\nIf this key was created inside a workspace, enter its own API host in Settings.",
+                       currentLang()))
+}
 
 private func extractWithQwen(url: URL, ext: String, apiKey: String) async throws -> ExtractedReport {
     if ext == "pdf" {
@@ -463,12 +496,7 @@ private func qwenVisionCall(images: [Data], prompt: String, apiKey: String) asyn
 
     let (data, response) = try await URLSession.shared.data(for: req)
     guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
-    if http.statusCode != 200 {
-        let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String
-            ?? (errJson?["message"] as? String) ?? "HTTP \(http.statusCode)"
-        throw AIError.apiError("通义千问: \(errMsg)")
-    }
+    if http.statusCode != 200 { throw qwenError(status: http.statusCode, data: data) }
     guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let choices = json["choices"] as? [[String: Any]],
           let first = choices.first,
