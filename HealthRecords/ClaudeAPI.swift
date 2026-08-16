@@ -485,7 +485,8 @@ private func extractWithQwen(url: URL, ext: String, apiKey: String) async throws
     return try parseAIResponse(reply)
 }
 
-private func qwenVisionCall(images: [Data], prompt: String, apiKey: String) async throws -> String {
+private func qwenVisionCall(images: [Data], prompt: String, apiKey: String,
+                            maxTokens: Int = 8192) async throws -> String {
     var content: [[String: Any]] = images.map { data in
         ["type": "image_url",
          "image_url": ["url": "data:image/jpeg;base64,\(data.base64EncodedString())"]]
@@ -495,7 +496,7 @@ private func qwenVisionCall(images: [Data], prompt: String, apiKey: String) asyn
     let body: [String: Any] = [
         "model": AIProvider.qwen.modelName,
         "messages": [["role": "user", "content": content]],
-        "max_tokens": 8192
+        "max_tokens": maxTokens
     ]
 
     var req = URLRequest(url: URL(string: qwenEndpoint)!)
@@ -741,7 +742,8 @@ private func extractBatchWithQwen(urls: [URL], mode: ImportMode, apiKey: String)
     let prompt = textSections.isEmpty
         ? instructions
         : instructions + "\n\n另外，以下文件是文字版：\n\n" + textSections.joined(separator: "\n\n——————\n\n")
-    let reply = try await qwenVisionCall(images: images, prompt: prompt, apiKey: apiKey)
+    let reply = try await qwenVisionCall(images: images, prompt: prompt, apiKey: apiKey,
+                                        maxTokens: 16384)
     return try parseBatchResponse(reply, fileCount: urls.count)
 }
 
@@ -773,7 +775,7 @@ private func extractBatchWithGemini(urls: [URL], mode: ImportMode, apiKey: Strin
     let body: [String: Any] = [
         "contents": [["parts": parts]],
         "generationConfig": ["responseMimeType": "application/json",
-                             "maxOutputTokens": 8192]
+                             "maxOutputTokens": 32768]
     ]
     let model = AIProvider.gemini.modelName
     let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
@@ -795,11 +797,13 @@ private func extractBatchWithGemini(urls: [URL], mode: ImportMode, apiKey: Strin
     guard
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let candidates = json["candidates"] as? [[String: Any]],
-        let content = candidates.first?["content"] as? [String: Any],
+        let candidate = candidates.first,
+        let content = candidate["content"] as? [String: Any],
         let responseParts = content["parts"] as? [[String: Any]],
         let text = responseParts.first?["text"] as? String
     else { throw AIError.parseError }
 
+    if (candidate["finishReason"] as? String) == "MAX_TOKENS" { throw AIError.truncated }
     return try parseBatchResponse(text, fileCount: urls.count)
 }
 
@@ -854,10 +858,12 @@ private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: Str
     guard
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let choices = json["choices"] as? [[String: Any]],
-        let message = choices.first?["message"] as? [String: Any],
+        let first = choices.first,
+        let message = first["message"] as? [String: Any],
         let text = message["content"] as? String
     else { throw AIError.parseError }
 
+    if (first["finish_reason"] as? String) == "length" { throw AIError.truncated }
     return try parseBatchResponse(text, fileCount: urls.count)
 }
 
@@ -963,11 +969,13 @@ private func extractWithGemini(url: URL, ext: String, apiKey: String) async thro
     guard
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let candidates = json["candidates"] as? [[String: Any]],
-        let content = candidates.first?["content"] as? [String: Any],
+        let candidate = candidates.first,
+        let content = candidate["content"] as? [String: Any],
         let parts = content["parts"] as? [[String: Any]],
         let text = parts.first?["text"] as? String
     else { throw AIError.parseError }
 
+    if (candidate["finishReason"] as? String) == "MAX_TOKENS" { throw AIError.truncated }
     return try parseAIResponse(text)
 }
 
