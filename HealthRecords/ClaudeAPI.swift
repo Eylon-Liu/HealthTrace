@@ -117,6 +117,7 @@ enum AIError: LocalizedError {
     case apiError(String)
     case parseError
     case truncated
+    case unreadableReply(String)
     case unsupportedFormat(String)
 
     var errorDescription: String? {
@@ -137,6 +138,16 @@ enum AIError: LocalizedError {
             return en
                 ? "This report is very long and the AI's reply was cut off. Try again — long reports are read in several passes."
                 : "报告很长，AI 的回复被截断了。请重试；长报告会分批读取。"
+        case .unreadableReply(let excerpt):
+            guard !excerpt.isEmpty else {
+                return en ? "The AI returned an empty reply. Try again, or switch provider in Settings."
+                          : "AI 返回了空回复。请重试，或在设置中更换 AI 服务。"
+            }
+            // Showing what it actually said is the difference between the user
+            // retrying forever and seeing "I can't read this photo".
+            return en
+                ? "The AI didn't return report data. It replied:\n\n\u{201C}\(excerpt)\u{201D}"
+                : "AI 没有返回报告数据，它的回复是：\n\n「\(excerpt)」"
         case .unsupportedFormat(let msg):
             return msg
         }
@@ -594,14 +605,107 @@ func extractReports(from urls: [URL], mode: ImportMode,
         return [one]
     }
 
-    switch provider {
-    case .gemini:
-        return try await extractBatchWithGemini(urls: urls, mode: mode, apiKey: apiKey)
-    case .deepseek:
-        return try await extractBatchWithDeepSeek(urls: urls, mode: mode, apiKey: apiKey)
-    case .qwen:
-        return try await extractBatchWithQwen(urls: urls, mode: mode, apiKey: apiKey)
+    do {
+        switch provider {
+        case .gemini:
+            return try await extractBatchWithGemini(urls: urls, mode: mode, apiKey: apiKey)
+        case .deepseek:
+            return try await extractBatchWithDeepSeek(urls: urls, mode: mode, apiKey: apiKey)
+        case .qwen:
+            return try await extractBatchWithQwen(urls: urls, mode: mode, apiKey: apiKey)
+        }
+    } catch AIError.truncated {
+        // A batch reply has to carry every report at once, so several files
+        // overflow it however long the limit is. The passes existed only on the
+        // text path; here each file gets a request of its own instead.
+        return try await extractFilesSeparately(urls: urls, mode: mode, provider: provider, apiKey: apiKey)
     }
+}
+
+/// Fallback for a batch reply that was cut off: one request per file, then the
+/// pieces put back together.
+private func extractFilesSeparately(urls: [URL], mode: ImportMode,
+                                    provider: AIProvider, apiKey: String) async throws -> [ExtractedReport] {
+    var found: [ExtractedReport] = []
+    var lastError: Error?
+
+    for (i, url) in urls.enumerated() {
+        do {
+            var one = try await extractReportFromFile(url, provider: provider, apiKey: apiKey)
+            one.source_files = [i + 1]
+            found.append(one)
+        } catch {
+            lastError = error   // one unreadable page shouldn't lose the others
+        }
+    }
+
+    guard !found.isEmpty else { throw lastError ?? AIError.truncated }
+    return mode == .singleReport ? [mergeExtractions(found)] : mergeSameExam(found)
+}
+
+/// Folds extractions of one exam together, de-duplicating labs and diagnoses
+/// the same way the multi-pass text path does.
+private func mergeExtractions(_ parts: [ExtractedReport]) -> ExtractedReport {
+    var merged = parts[0]
+    var labs = merged.lab_values ?? []
+    var conditions = merged.conditions ?? []
+    var findings = [merged.findings].compactMap { $0?.nilIfBlank }
+    var seenLabs = Set(labs.compactMap { $0.name.map { normalizeLabName($0) } })
+    var seenConditions = Set(conditions.compactMap { $0.name?.lowercased() })
+    var sources = merged.source_files ?? []
+
+    for part in parts.dropFirst() {
+        for lv in part.lab_values ?? [] {
+            guard let name = lv.name?.nilIfBlank else { continue }
+            if seenLabs.insert(normalizeLabName(name)).inserted { labs.append(lv) }
+        }
+        for c in part.conditions ?? [] {
+            guard let name = c.name?.nilIfBlank else { continue }
+            if seenConditions.insert(name.lowercased()).inserted { conditions.append(c) }
+        }
+        if let f = part.findings?.nilIfBlank { findings.append(f) }
+        sources.append(contentsOf: part.source_files ?? [])
+
+        // A later page often carries the header the first one lacked.
+        if merged.title?.nilIfBlank == nil { merged.title = part.title }
+        if merged.report_date?.nilIfBlank == nil { merged.report_date = part.report_date }
+        if merged.hospital?.nilIfBlank == nil { merged.hospital = part.hospital }
+        if merged.doctor?.nilIfBlank == nil { merged.doctor = part.doctor }
+        if merged.conclusion?.nilIfBlank == nil { merged.conclusion = part.conclusion }
+        if merged.recommendations?.nilIfBlank == nil { merged.recommendations = part.recommendations }
+    }
+
+    merged.lab_values = labs
+    merged.conditions = conditions
+    merged.findings = findings.isEmpty ? nil : findings.joined(separator: "\n\n")
+    merged.source_files = Array(Set(sources)).sorted()
+    return merged
+}
+
+/// Photographing one exam across several pages yields several reports here.
+/// Same date, same hospital, same kind, adjacent in the upload — that is one
+/// exam, and folding them back recovers the grouping the batch call would have
+/// done, without spending another request on it.
+private func mergeSameExam(_ reports: [ExtractedReport]) -> [ExtractedReport] {
+    var out: [ExtractedReport] = []
+    for r in reports {
+        if let last = out.last, sameExam(last, r) {
+            out[out.count - 1] = mergeExtractions([last, r])
+        } else {
+            out.append(r)
+        }
+    }
+    return out
+}
+
+private func sameExam(_ a: ExtractedReport, _ b: ExtractedReport) -> Bool {
+    // No date on either side is too weak to merge on — keep them separate and
+    // let the user combine them rather than silently welding two exams together.
+    guard let da = a.report_date?.nilIfBlank, let db = b.report_date?.nilIfBlank, da == db else { return false }
+    if let ha = a.hospital?.nilIfBlank, let hb = b.hospital?.nilIfBlank, ha != hb { return false }
+    // One visit can produce both a blood panel and an ultrasound; those stay
+    // separate entries.
+    return (a.report_type?.nilIfBlank ?? "") == (b.report_type?.nilIfBlank ?? "")
 }
 
 private func extractBatchWithQwen(urls: [URL], mode: ImportMode, apiKey: String) async throws -> [ExtractedReport] {
@@ -758,7 +862,12 @@ private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: Str
 }
 
 private func parseBatchResponse(_ raw: String, fileCount: Int) throws -> [ExtractedReport] {
-    guard let jsonData = extractJSONPayload(from: raw) else { throw AIError.truncated }
+    let jsonData: Data
+    switch classifyReply(raw) {
+    case .json(let d): jsonData = d
+    case .cutOff: throw AIError.truncated
+    case .notJSON(let excerpt): throw AIError.unreadableReply(excerpt)
+    }
 
     var reports: [ExtractedReport]
     if let batch = try? JSONDecoder().decode(BatchExtractionResult.self, from: jsonData),
@@ -926,12 +1035,38 @@ func extractJSONPayload(from raw: String) -> Data? {
     return String(cleaned[start...end]).data(using: .utf8)
 }
 
-private func parseAIResponse(_ raw: String) throws -> ExtractedReport {
-    guard let jsonData = extractJSONPayload(from: raw) else { throw AIError.truncated }
-    guard let result = try? JSONDecoder().decode(ExtractedReport.self, from: jsonData) else {
-        throw AIError.parseError
+/// Tells a reply cut off mid-object apart from one that never held JSON at all.
+/// Both used to be reported as "the report is too long", which sent the user to
+/// retry a refusal or an empty answer that fails identically every time.
+enum AIReplyPayload {
+    case json(Data)
+    case cutOff
+    case notJSON(String)
+}
+
+func classifyReply(_ raw: String) -> AIReplyPayload {
+    if let data = extractJSONPayload(from: raw) { return .json(data) }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    // An object was opened and never closed: genuinely cut off. No brace at
+    // all: the model answered with something else entirely.
+    guard trimmed.contains("{") else { return .notJSON(String(trimmed.prefix(200))) }
+    return .cutOff
+}
+
+private func decodeReply<T: Decodable>(_ raw: String, as type: T.Type) throws -> T {
+    switch classifyReply(raw) {
+    case .cutOff:
+        throw AIError.truncated
+    case .notJSON(let excerpt):
+        throw AIError.unreadableReply(excerpt)
+    case .json(let data):
+        guard let result = try? JSONDecoder().decode(type, from: data) else { throw AIError.parseError }
+        return result
     }
-    return result
+}
+
+private func parseAIResponse(_ raw: String) throws -> ExtractedReport {
+    try decodeReply(raw, as: ExtractedReport.self)
 }
 
 // MARK: - AI Summary generation
