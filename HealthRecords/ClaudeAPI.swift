@@ -96,15 +96,29 @@ enum AIError: LocalizedError {
     case invalidResponse
     case apiError(String)
     case parseError
+    case truncated
     case unsupportedFormat(String)
 
     var errorDescription: String? {
+        let en = currentLang() == "en"
         switch self {
-        case .noAPIKey: return "请先在设置中填写 API Key"
-        case .invalidResponse: return "服务器返回无效响应"
-        case .apiError(let msg): return msg
-        case .parseError: return "无法解析 AI 返回的内容"
-        case .unsupportedFormat(let msg): return msg
+        case .noAPIKey:
+            return en ? "Add an API key in Settings first." : "请先在设置中填写 API Key"
+        case .invalidResponse:
+            return en ? "The server returned an invalid response." : "服务器返回无效响应"
+        case .apiError(let msg):
+            return msg
+        case .parseError:
+            // The old wording ("无法解析 AI 返回的内容") told the user nothing they could act on.
+            return en
+                ? "The AI's reply wasn't in a readable format. Try again — if it keeps failing, switch to Gemini in Settings."
+                : "AI 返回的内容格式不正确。请重试；若反复失败，请在设置中改用 Gemini。"
+        case .truncated:
+            return en
+                ? "This report is too long — the AI's reply was cut off. Upload it in parts, or switch to Gemini in Settings."
+                : "报告内容太长，AI 的回复被截断了。请分次上传，或在设置中改用 Gemini。"
+        case .unsupportedFormat(let msg):
+            return msg
         }
     }
 }
@@ -259,7 +273,11 @@ private func extractBatchWithGemini(urls: [URL], mode: ImportMode, apiKey: Strin
 
     parts.append(["text": batchInstructions(mode: mode, fileCount: urls.count)])
 
-    let body: [String: Any] = ["contents": [["parts": parts]]]
+    let body: [String: Any] = [
+        "contents": [["parts": parts]],
+        "generationConfig": ["responseMimeType": "application/json",
+                             "maxOutputTokens": 8192]
+    ]
     let model = AIProvider.gemini.modelName
     let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
     var req = URLRequest(url: URL(string: endpoint)!)
@@ -293,7 +311,9 @@ private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: Str
 
     for (i, url) in urls.enumerated() {
         guard url.pathExtension.lowercased() == "pdf" else {
-            throw AIError.unsupportedFormat("DeepSeek 不支持图片识别，请切换到 Gemini，或只上传文字版 PDF。")
+            throw AIError.unsupportedFormat(
+                T("DeepSeek 只能读取文字版 PDF。请在设置中改用 Gemini，或只上传文字版 PDF。",
+                  "DeepSeek can only read text PDFs. Switch to Gemini in Settings, or upload text PDFs only.", currentLang()))
         }
         guard let pdfDoc = PDFDocument(url: url) else {
             throw AIError.unsupportedFormat("无法读取 PDF：\(url.lastPathComponent)")
@@ -315,6 +335,7 @@ private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: Str
     let body: [String: Any] = [
         "model": "deepseek-chat",
         "messages": [["role": "user", "content": prompt]],
+        "response_format": ["type": "json_object"],
         "max_tokens": 8192
     ]
 
@@ -344,13 +365,7 @@ private func extractBatchWithDeepSeek(urls: [URL], mode: ImportMode, apiKey: Str
 }
 
 private func parseBatchResponse(_ raw: String, fileCount: Int) throws -> [ExtractedReport] {
-    var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    if cleaned.hasPrefix("```") {
-        cleaned = cleaned.components(separatedBy: "\n").dropFirst().joined(separator: "\n")
-        if cleaned.hasSuffix("```") { cleaned = String(cleaned.dropLast(3)) }
-        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    guard let jsonData = cleaned.data(using: .utf8) else { throw AIError.parseError }
+    guard let jsonData = extractJSONPayload(from: raw) else { throw AIError.truncated }
 
     var reports: [ExtractedReport]
     if let batch = try? JSONDecoder().decode(BatchExtractionResult.self, from: jsonData),
@@ -417,14 +432,17 @@ private func extractWithGemini(url: URL, ext: String, apiKey: String) async thro
                 ["inlineData": ["mimeType": mimeType, "data": base64]],
                 ["text": extractionPrompt]
             ]
-        ]]
+        ]],
+        "generationConfig": ["responseMimeType": "application/json",
+                             "maxOutputTokens": 8192]
     ]
 
     let model = AIProvider.gemini.modelName
-    let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)"
+    let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
     var req = URLRequest(url: URL(string: endpoint)!)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "content-type")
+    req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
     let (data, response) = try await URLSession.shared.data(for: req)
@@ -454,7 +472,8 @@ private func extractWithDeepSeek(url: URL, ext: String, apiKey: String) async th
 
     if ext == "pdf" {
         guard let pdfDoc = PDFDocument(url: url) else {
-            throw AIError.unsupportedFormat("无法读取 PDF 文件")
+            throw AIError.unsupportedFormat(
+            T("无法读取这个 PDF 文件。", "This PDF could not be opened.", currentLang()))
         }
         var pages: [String] = []
         for i in 0..<pdfDoc.pageCount {
@@ -464,10 +483,14 @@ private func extractWithDeepSeek(url: URL, ext: String, apiKey: String) async th
         }
         textContent = pages.joined(separator: "\n---\n")
         if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw AIError.unsupportedFormat("PDF 是扫描件，无法提取文字。请切换到 Gemini（支持图片识别）。")
+            throw AIError.unsupportedFormat(
+                T("这份 PDF 是扫描件，里面没有可提取的文字。请在设置中改用 Gemini，它可以识别图片。",
+                  "This PDF is a scan with no extractable text. Switch to Gemini in Settings — it can read images.", currentLang()))
         }
     } else {
-        throw AIError.unsupportedFormat("DeepSeek 不支持图片识别。请切换到 Gemini 或上传 PDF 文件。")
+        throw AIError.unsupportedFormat(
+            T("DeepSeek 只能读取文字版 PDF，无法识别照片。请在设置中改用 Gemini。",
+              "DeepSeek can only read text PDFs, not photos. Switch to Gemini in Settings.", currentLang()))
     }
 
     let prompt = extractionPrompt + "\n\n以下是报告内容：\n\n" + textContent
@@ -475,7 +498,10 @@ private func extractWithDeepSeek(url: URL, ext: String, apiKey: String) async th
     let body: [String: Any] = [
         "model": "deepseek-chat",
         "messages": [["role": "user", "content": prompt]],
-        "max_tokens": 4096
+        // JSON mode guarantees a parseable object; 4096 truncated real physicals
+        // (a 52-item panel already costs ~3000 output tokens).
+        "response_format": ["type": "json_object"],
+        "max_tokens": 8192
     ]
 
     var req = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
@@ -505,18 +531,53 @@ private func extractWithDeepSeek(url: URL, ext: String, apiKey: String) async th
 
 // MARK: - Parse AI response
 
-private func parseAIResponse(_ raw: String) throws -> ExtractedReport {
+/// Pulls the JSON object out of a model reply, tolerating code fences and any
+/// chatter before or after it ("好的，以下是分析结果：{...}"), which is the most
+/// common reason a perfectly good extraction was thrown away as unparseable.
+func extractJSONPayload(from raw: String) -> Data? {
     var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    if cleaned.hasPrefix("```") {
-        cleaned = cleaned.components(separatedBy: "\n").dropFirst().joined(separator: "\n")
-        if cleaned.hasSuffix("```") { cleaned = String(cleaned.dropLast(3)) }
-        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if let fence = cleaned.range(of: "```") {
+        var inner = String(cleaned[fence.upperBound...])
+        if let firstNewline = inner.firstIndex(of: "\n") {
+            let tag = inner[inner.startIndex..<firstNewline].trimmingCharacters(in: .whitespaces)
+            if tag.isEmpty || tag.lowercased() == "json" {
+                inner = String(inner[inner.index(after: firstNewline)...])
+            }
+        }
+        if let closing = inner.range(of: "```") { inner = String(inner[..<closing.lowerBound]) }
+        cleaned = inner.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    guard let jsonData = cleaned.data(using: .utf8),
-          let result = try? JSONDecoder().decode(ExtractedReport.self, from: jsonData)
-    else { throw AIError.parseError }
+    // Take the outermost balanced { … }, ignoring braces inside string literals.
+    guard let start = cleaned.firstIndex(of: "{") else { return nil }
+    var depth = 0
+    var inString = false
+    var escaped = false
+    var end: String.Index?
 
+    for i in cleaned[start...].indices {
+        let ch = cleaned[i]
+        if escaped { escaped = false; continue }
+        if ch == "\\" { escaped = true; continue }
+        if ch == "\"" { inString.toggle(); continue }
+        guard !inString else { continue }
+        if ch == "{" { depth += 1 }
+        if ch == "}" {
+            depth -= 1
+            if depth == 0 { end = i; break }
+        }
+    }
+
+    guard let end else { return nil }   // unbalanced == the reply was cut off
+    return String(cleaned[start...end]).data(using: .utf8)
+}
+
+private func parseAIResponse(_ raw: String) throws -> ExtractedReport {
+    guard let jsonData = extractJSONPayload(from: raw) else { throw AIError.truncated }
+    guard let result = try? JSONDecoder().decode(ExtractedReport.self, from: jsonData) else {
+        throw AIError.parseError
+    }
     return result
 }
 
@@ -788,11 +849,13 @@ func callGeminiText(prompt: String, provider: AIProvider, apiKey: String) async 
             "contents": [["parts": [["text": prompt]]]]
         ]
         let model = AIProvider.gemini.modelName
-        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)"
+        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
         var req = URLRequest(url: URL(string: endpoint)!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 180
 
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }

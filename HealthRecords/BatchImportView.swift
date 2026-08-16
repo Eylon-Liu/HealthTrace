@@ -94,6 +94,7 @@ struct BatchImportView: View {
 
                 if !files.isEmpty {
                     fileListCard
+                    if providerCannotReadSelection { providerWarningCard }
                     modeCard
                     extractButton
                 }
@@ -190,6 +191,42 @@ struct BatchImportView: View {
                      "Everything is merged into a single entry — right for one report spread over several pages.", lang))
                 .font(.caption).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .healthCard(padding: 14)
+    }
+
+    /// DeepSeek is text-only. Saying so here beats letting the user spend a
+    /// request and get "DeepSeek can't read images" back.
+    private var providerCannotReadSelection: Bool {
+        provider == .deepseek && files.contains { $0.pathExtension.lowercased() != "pdf" }
+    }
+
+    private var providerWarningCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text(T("DeepSeek 只能读取文字版 PDF，无法识别照片或扫描件。",
+                       "DeepSeek can only read text PDFs — it cannot read photos or scans.", lang))
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if geminiKey.isEmpty {
+                APIKeyHint(lang: lang)
+            } else {
+                Button {
+                    providerRaw = AIProvider.gemini.rawValue
+                } label: {
+                    Text(T("切换到 Gemini（可识别照片）", "Switch to Gemini (reads photos)", lang))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(10)
+                        .background(Color.blue.opacity(0.12))
+                        .foregroundColor(.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }
+            }
         }
         .healthCard(padding: 14)
     }
