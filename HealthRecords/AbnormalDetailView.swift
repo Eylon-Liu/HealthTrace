@@ -18,7 +18,7 @@ struct AbnormalDetailView: View {
     @State private var aiExpanded = false
 
     private var currentProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
-    private var currentAPIKey: String { currentProvider == .gemini ? geminiKey : deepseekKey }
+    private var currentAPIKey: String { storedAPIKey(for: currentProvider) }
     private var useEN: Bool { lang == "en" }
     private var cacheKey: String {
         "aiAbnormalExplanation_\(pm.currentProfile?.id?.uuidString ?? "none")"

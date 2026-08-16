@@ -45,9 +45,7 @@ struct AddReportView: View {
     private var currentProvider: AIProvider {
         AIProvider(rawValue: providerRaw) ?? .gemini
     }
-    private var currentAPIKey: String {
-        currentProvider == .gemini ? geminiKey : deepseekKey
-    }
+    private var currentAPIKey: String { storedAPIKey(for: currentProvider) }
 
     init(profile: Profile? = nil, report: MedicalReport? = nil) {
         self.profile = profile

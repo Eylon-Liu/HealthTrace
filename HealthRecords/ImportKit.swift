@@ -95,16 +95,20 @@ func importConditions(_ items: [ExtractedCondition],
         c.doctor = doctor?.nilIfBlank
         c.dateOnset = item.date_onset?.isoDate ?? reportDate
 
-        if item.isChronic {
+        if let end = item.expected_end?.isoDate, !item.isChronic {
+            // Time-limited with a stated end: watched until that date.
+            c.dateResolved = end
+            c.status = end < Date() ? "resolved" : "monitoring"
+        } else if item.isChronic {
             // Lifelong: stays open, no end date.
             c.status = "active"
             c.dateResolved = nil
         } else {
-            // Time-limited: carries the expected end date and is watched until then.
-            let end = item.expected_end?.isoDate
-                ?? Calendar.current.date(byAdding: .day, value: 10, to: c.dateOnset ?? Date())
-            c.dateResolved = end
-            c.status = (end.map { $0 < Date() } ?? false) ? "resolved" : "monitoring"
+            // Called temporary but with no end date the model could name — a
+            // vitamin D deficiency shouldn't get a fabricated recovery date.
+            // Keep it open and merely watched.
+            c.status = "monitoring"
+            c.dateResolved = nil
         }
 
         var noteParts: [String] = []

@@ -162,7 +162,7 @@ struct ReportDetailView: View {
     @AppStorage("summaryLanguage") private var summaryLanguage = "zh"
 
     private var currentProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
-    private var currentAPIKey: String { currentProvider == .gemini ? geminiKey : deepseekKey }
+    private var currentAPIKey: String { storedAPIKey(for: currentProvider) }
 
     private var labValues: [LabValue] {
         (report.labValues as? Set<LabValue>)?.sorted { ($0.itemName ?? "") < ($1.itemName ?? "") } ?? []

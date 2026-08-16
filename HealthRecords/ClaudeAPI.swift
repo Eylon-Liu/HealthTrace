@@ -61,32 +61,52 @@ struct ExtractedLabValue: Codable {
 
 enum AIProvider: String, CaseIterable {
     case gemini = "gemini"
+    case qwen = "qwen"
     case deepseek = "deepseek"
 
     var displayName: String {
         switch self {
-        case .gemini: return T("Gemini（推荐）", "Gemini (recommended)", currentLang())
-        case .deepseek: return "DeepSeek"
+        case .gemini:   return T("Gemini（国外）", "Gemini (outside China)", currentLang())
+        case .qwen:     return T("通义千问（国内可用）", "Qwen (works in China)", currentLang())
+        case .deepseek: return T("DeepSeek（仅文字 PDF）", "DeepSeek (text PDFs only)", currentLang())
         }
     }
 
     var modelName: String {
         switch self {
         case .gemini:
-            // Read persisted selection; default to gemini-3.5-flash
-            let selected = UserDefaults.standard.string(forKey: "gemini_model") ?? "gemini-3.5-flash"
-            return selected
+            return UserDefaults.standard.string(forKey: "gemini_model") ?? "gemini-3.5-flash"
+        case .qwen:
+            return UserDefaults.standard.string(forKey: "qwen_model") ?? "qwen-vl-max"
         case .deepseek:
             return "deepseek-chat"
         }
     }
 
+    /// Can it read photos and scanned pages, or only text?
     var supportsVision: Bool {
         switch self {
-        case .gemini: return true
-        case .deepseek: return false
+        case .gemini, .qwen: return true
+        case .deepseek:      return false
         }
     }
+
+    var apiKeyDefaultsKey: String {
+        switch self {
+        case .gemini:   return "gemini_api_key"
+        case .qwen:     return "qwen_api_key"
+        case .deepseek: return "deepseek_api_key"
+        }
+    }
+
+    /// Reachable from mainland China without a VPN.
+    var availableInChina: Bool { self != .gemini }
+}
+
+/// One place that knows where each provider's key is stored — every screen was
+/// re-deriving this with its own ternary.
+func storedAPIKey(for provider: AIProvider) -> String {
+    UserDefaults.standard.string(forKey: provider.apiKeyDefaultsKey) ?? ""
 }
 
 // MARK: - Errors
@@ -111,12 +131,12 @@ enum AIError: LocalizedError {
         case .parseError:
             // The old wording ("无法解析 AI 返回的内容") told the user nothing they could act on.
             return en
-                ? "The AI's reply wasn't in a readable format. Try again — if it keeps failing, switch to Gemini in Settings."
-                : "AI 返回的内容格式不正确。请重试；若反复失败，请在设置中改用 Gemini。"
+                ? "The AI's reply wasn't in a readable format. Try again, or switch provider in Settings."
+                : "AI 返回的内容格式不正确。请重试，或在设置中更换 AI 服务。"
         case .truncated:
             return en
-                ? "This report is too long — the AI's reply was cut off. Upload it in parts, or switch to Gemini in Settings."
-                : "报告内容太长，AI 的回复被截断了。请分次上传，或在设置中改用 Gemini。"
+                ? "This report is very long and the AI's reply was cut off. Try again — long reports are read in several passes."
+                : "报告很长，AI 的回复被截断了。请重试；长报告会分批读取。"
         case .unsupportedFormat(let msg):
             return msg
         }
@@ -165,6 +185,7 @@ conditions（诊断）规则：
 - 只提取报告中明确写出的诊断、过敏或既往病史，不要自行推测
 - chronic＝长期或终身存在：食物/药物过敏、糖尿病、高血压、哮喘、慢性肾病、甲状腺疾病等。chronic 的 expected_end 必须为 null
 - temporary＝可痊愈的急性情况：病毒性感冒、流感、急性肠胃炎、扭伤、伤口感染等。temporary 必须给出 expected_end：报告写明疗程就用报告的，没写就从报告日期按常见病程推算（例如病毒性上呼吸道感染约 7-10 天）
+- 如果无法判断痊愈时间（例如维生素缺乏、贫血、结节、脂肪肝），按 chronic 处理，expected_end 为 null，不要猜一个日期
 - 检验数值异常本身不是诊断，不要写进 conditions（例如"白细胞偏高"不算诊断）
 - 报告没有任何诊断时，conditions 返回空数组 []
 """
@@ -183,8 +204,313 @@ func extractReportFromFile(_ url: URL, provider: AIProvider, apiKey: String) asy
     case .gemini:
         return try await extractWithGemini(url: url, ext: ext, apiKey: apiKey)
     case .deepseek:
-        return try await extractWithDeepSeek(url: url, ext: ext, apiKey: apiKey)
+        return try await extractWithTextProvider(url: url, ext: ext, provider: provider, apiKey: apiKey)
+    case .qwen:
+        return try await extractWithQwen(url: url, ext: ext, apiKey: apiKey)
     }
+}
+
+// MARK: - Long reports read in passes
+//
+// A whole-body physical carries a full blood panel plus ultrasound findings for
+// many organs. Asked for in one go, the JSON runs past any reply limit —
+// DeepSeek's ceiling is 8192 tokens and cannot be raised — and the answer comes
+// back cut off mid-object. So the text is read in passes and merged.
+
+/// Extraction results for a continuation pass: only what is new in this part.
+private struct PartialExtraction: Codable {
+    var lab_values: [ExtractedLabValue]?
+    var conditions: [ExtractedCondition]?
+    var findings: String?
+}
+
+/// Splits on line boundaries so a lab row is never cut in half.
+///
+/// 4000 characters, not more: measured against a real Chinese physical, output
+/// runs about 1.2 tokens per input character (2170 chars produced 2663 tokens),
+/// so a larger chunk would push the reply into DeepSeek's 8192-token ceiling —
+/// the exact truncation this is here to prevent.
+func splitIntoChunks(_ text: String, maxChars: Int = 4000) -> [String] {
+    let lines = text.components(separatedBy: .newlines)
+    var chunks: [String] = []
+    var current = ""
+    for line in lines {
+        if current.count + line.count + 1 > maxChars, !current.isEmpty {
+            chunks.append(current)
+            current = ""
+        }
+        current += (current.isEmpty ? "" : "\n") + line
+    }
+    if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { chunks.append(current) }
+    return chunks.isEmpty ? [text] : chunks
+}
+
+private func continuationPrompt(part: Int, total: Int) -> String {
+    """
+    这是同一份体检报告的第 \(part)/\(total) 部分。前面的部分已经提取过了。
+    只需要提取这一部分里新出现的内容，以 JSON 返回（只返回 JSON）：
+    {
+      "lab_values": [{"name":"项目名称","value":"数值","unit":"单位","ref_range":"参考范围","status":"normal/high/low/critical"}],
+      "conditions": [{"name":"诊断","category":"过敏/慢性病/感染/损伤/术后/其他","chronicity":"chronic或temporary","date_onset":null,"expected_end":null,"severity":null,"restrictions":null,"notes":null}],
+      "findings": "这一部分的检查所见（例如各项超声、影像描述），完整保留；没有则为 null"
+    }
+
+    - 超声/影像等文字描述放进 findings，不要放进 lab_values
+    - 检验数值异常本身不是诊断，不要写进 conditions
+    - 这一部分没有检验项目时 lab_values 返回 []
+    """
+}
+
+/// Reads long report text in sequential passes and merges the results.
+private func extractFromText(_ text: String, provider: AIProvider, apiKey: String,
+                             progress: ((Int, Int) -> Void)? = nil) async throws -> ExtractedReport {
+    let chunks = splitIntoChunks(text)
+
+    // Short enough to answer in one reply — the ordinary path.
+    if chunks.count == 1 {
+        progress?(1, 1)
+        let reply = try await completeText(prompt: extractionPrompt + "\n\n以下是报告内容：\n\n" + text,
+                                           provider: provider, apiKey: apiKey)
+        return try parseAIResponse(reply)
+    }
+
+    progress?(1, chunks.count)
+    let firstReply = try await completeText(
+        prompt: extractionPrompt + "\n\n（这是一份较长的报告，以下是第 1/\(chunks.count) 部分）\n\n" + chunks[0],
+        provider: provider, apiKey: apiKey)
+    var merged = try parseAIResponse(firstReply)
+
+    var labs = merged.lab_values ?? []
+    var conditions = merged.conditions ?? []
+    var findings = [merged.findings].compactMap { $0?.nilIfBlank }
+    var seenLabs = Set(labs.compactMap { $0.name.map { normalizeLabName($0) } })
+    var seenConditions = Set(conditions.compactMap { $0.name?.lowercased() })
+
+    for (i, chunk) in chunks.enumerated().dropFirst() {
+        progress?(i + 1, chunks.count)
+        let reply = try await completeText(
+            prompt: continuationPrompt(part: i + 1, total: chunks.count) + "\n\n以下是内容：\n\n" + chunk,
+            provider: provider, apiKey: apiKey)
+
+        guard let data = extractJSONPayload(from: reply),
+              let part = try? JSONDecoder().decode(PartialExtraction.self, from: data)
+        else { continue }   // one bad pass shouldn't discard the rest of the report
+
+        for lv in part.lab_values ?? [] {
+            guard let name = lv.name?.nilIfBlank else { continue }
+            let key = normalizeLabName(name)
+            if seenLabs.insert(key).inserted { labs.append(lv) }
+        }
+        for c in part.conditions ?? [] {
+            guard let name = c.name?.nilIfBlank else { continue }
+            if seenConditions.insert(name.lowercased()).inserted { conditions.append(c) }
+        }
+        if let f = part.findings?.nilIfBlank { findings.append(f) }
+    }
+
+    merged.lab_values = labs
+    merged.conditions = conditions
+    merged.findings = findings.isEmpty ? merged.findings : findings.joined(separator: "\n\n")
+    return merged
+}
+
+/// One text completion, whichever provider is configured.
+private func completeText(prompt: String, provider: AIProvider, apiKey: String) async throws -> String {
+    switch provider {
+    case .qwen:
+        // Text passes use the plain chat model, not the vision one.
+        let body: [String: Any] = [
+            "model": "qwen-plus",
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 8192
+        ]
+        var req = URLRequest(url: URL(string: qwenEndpoint)!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 180
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+        if http.statusCode != 200 {
+            let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String
+                ?? (errJson?["message"] as? String) ?? "HTTP \(http.statusCode)"
+            throw AIError.apiError("通义千问: \(errMsg)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let message = first["message"] as? [String: Any],
+              let text = message["content"] as? String
+        else { throw AIError.parseError }
+        if (first["finish_reason"] as? String) == "length" { throw AIError.truncated }
+        return text
+
+    case .deepseek:
+        let body: [String: Any] = [
+            "model": "deepseek-chat",
+            "messages": [["role": "user", "content": prompt]],
+            "response_format": ["type": "json_object"],
+            "max_tokens": 8192
+        ]
+        var req = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 180
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+        if http.statusCode != 200 {
+            let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(http.statusCode)"
+            throw AIError.apiError("DeepSeek: \(errMsg)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let message = first["message"] as? [String: Any],
+              let text = message["content"] as? String
+        else { throw AIError.parseError }
+        if (first["finish_reason"] as? String) == "length" { throw AIError.truncated }
+        return text
+
+    case .gemini:
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": prompt]]]],
+            "generationConfig": ["responseMimeType": "application/json",
+                                 "maxOutputTokens": 32768]
+        ]
+        let model = AIProvider.gemini.modelName
+        let endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent"
+        var req = URLRequest(url: URL(string: endpoint)!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 180
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+        if http.statusCode != 200 {
+            let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(http.statusCode)"
+            throw AIError.apiError("Gemini: \(errMsg)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let candidate = candidates.first,
+              let content = candidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let text = parts.first?["text"] as? String
+        else { throw AIError.parseError }
+        if (candidate["finishReason"] as? String) == "MAX_TOKENS" { throw AIError.truncated }
+        return text
+    }
+}
+
+// MARK: - Qwen / 通义千问
+//
+// Gemini is unreachable from mainland China, and DeepSeek has no vision, which
+// left photographed and scanned reports with nothing that works there. Qwen-VL
+// runs on Alibaba's DashScope and speaks the OpenAI-compatible shape.
+
+private let qwenEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+private func extractWithQwen(url: URL, ext: String, apiKey: String) async throws -> ExtractedReport {
+    if ext == "pdf" {
+        // Prefer the text layer — cheaper, and long reports read in passes.
+        if let text = pdfTextIfAvailable(at: url) {
+            return try await extractFromText(text, provider: .qwen, apiKey: apiKey)
+        }
+        // A scan: render the pages and let the vision model read them.
+        let images = renderPDFPagesAsJPEG(url: url)
+        guard !images.isEmpty else {
+            throw AIError.unsupportedFormat(
+                T("无法读取这个 PDF 文件。", "This PDF could not be opened.", currentLang()))
+        }
+        let reply = try await qwenVisionCall(images: images, prompt: extractionPrompt, apiKey: apiKey)
+        return try parseAIResponse(reply)
+    }
+
+    let data = try downscaledJPEG(at: url)
+    let reply = try await qwenVisionCall(images: [data], prompt: extractionPrompt, apiKey: apiKey)
+    return try parseAIResponse(reply)
+}
+
+private func qwenVisionCall(images: [Data], prompt: String, apiKey: String) async throws -> String {
+    var content: [[String: Any]] = images.map { data in
+        ["type": "image_url",
+         "image_url": ["url": "data:image/jpeg;base64,\(data.base64EncodedString())"]]
+    }
+    content.append(["type": "text", "text": prompt])
+
+    let body: [String: Any] = [
+        "model": AIProvider.qwen.modelName,
+        "messages": [["role": "user", "content": content]],
+        "max_tokens": 8192
+    ]
+
+    var req = URLRequest(url: URL(string: qwenEndpoint)!)
+    req.httpMethod = "POST"
+    req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    req.setValue("application/json", forHTTPHeaderField: "content-type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    req.timeoutInterval = 180
+
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
+    if http.statusCode != 200 {
+        let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String
+            ?? (errJson?["message"] as? String) ?? "HTTP \(http.statusCode)"
+        throw AIError.apiError("通义千问: \(errMsg)")
+    }
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let choices = json["choices"] as? [[String: Any]],
+          let first = choices.first,
+          let message = first["message"] as? [String: Any],
+          let text = message["content"] as? String
+    else { throw AIError.parseError }
+    if (first["finish_reason"] as? String) == "length" { throw AIError.truncated }
+    return text
+}
+
+/// Rasterises a scanned PDF so a vision model can read it. Capped because each
+/// page becomes a base64 image in the request body.
+func renderPDFPagesAsJPEG(url: URL, maxPages: Int = 8, maxDimension: CGFloat = 1600) -> [Data] {
+    guard let doc = PDFDocument(url: url) else { return [] }
+    var out: [Data] = []
+    for i in 0..<min(doc.pageCount, maxPages) {
+        guard let page = doc.page(at: i) else { continue }
+        let bounds = page.bounds(for: .mediaBox)
+        let scale = min(maxDimension / max(bounds.width, bounds.height), 3.0)
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.translateBy(x: 0, y: size.height)
+            context.cgContext.scaleBy(x: scale, y: -scale)
+            page.draw(with: .mediaBox, to: context.cgContext)
+        }
+        if let data = image.jpegData(compressionQuality: 0.7) { out.append(data) }
+    }
+    return out
+}
+
+/// Text of a PDF, or nil when it is a scan with nothing selectable.
+func pdfTextIfAvailable(at url: URL) -> String? {
+    guard let doc = PDFDocument(url: url) else { return nil }
+    var pages: [String] = []
+    for i in 0..<doc.pageCount {
+        if let s = doc.page(at: i)?.string, !s.isEmpty { pages.append(s) }
+    }
+    let text = pages.joined(separator: "\n")
+    return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
 }
 
 // MARK: - Batch extraction
@@ -245,7 +571,46 @@ func extractReports(from urls: [URL], mode: ImportMode,
         return try await extractBatchWithGemini(urls: urls, mode: mode, apiKey: apiKey)
     case .deepseek:
         return try await extractBatchWithDeepSeek(urls: urls, mode: mode, apiKey: apiKey)
+    case .qwen:
+        return try await extractBatchWithQwen(urls: urls, mode: mode, apiKey: apiKey)
     }
+}
+
+private func extractBatchWithQwen(urls: [URL], mode: ImportMode, apiKey: String) async throws -> [ExtractedReport] {
+    var images: [Data] = []
+    var textSections: [String] = []
+
+    for (i, url) in urls.enumerated() {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+        if url.pathExtension.lowercased() == "pdf" {
+            if let text = pdfTextIfAvailable(at: url) {
+                textSections.append("【文件 \(i + 1)：\(url.lastPathComponent)】\n\(text)")
+            } else {
+                images.append(contentsOf: renderPDFPagesAsJPEG(url: url))
+            }
+        } else {
+            images.append(try downscaledJPEG(at: url))
+        }
+    }
+
+    let instructions = batchInstructions(mode: mode, fileCount: urls.count)
+
+    // All text: no need to send pictures at all.
+    if images.isEmpty, !textSections.isEmpty {
+        let reply = try await completeText(
+            prompt: instructions + "\n\n以下是全部文件的内容：\n\n"
+                + textSections.joined(separator: "\n\n——————\n\n"),
+            provider: .qwen, apiKey: apiKey)
+        return try parseBatchResponse(reply, fileCount: urls.count)
+    }
+
+    let prompt = textSections.isEmpty
+        ? instructions
+        : instructions + "\n\n另外，以下文件是文字版：\n\n" + textSections.joined(separator: "\n\n——————\n\n")
+    let reply = try await qwenVisionCall(images: images, prompt: prompt, apiKey: apiKey)
+    return try parseBatchResponse(reply, fileCount: urls.count)
 }
 
 private func extractBatchWithGemini(urls: [URL], mode: ImportMode, apiKey: String) async throws -> [ExtractedReport] {
@@ -411,6 +776,10 @@ func downscaledJPEG(at url: URL, maxDimension: CGFloat = 1600, quality: CGFloat 
 // MARK: - Gemini
 
 private func extractWithGemini(url: URL, ext: String, apiKey: String) async throws -> ExtractedReport {
+    // A long text PDF is more reliable read in passes than as one huge reply.
+    if ext == "pdf", let text = pdfTextIfAvailable(at: url), text.count > 6500 {
+        return try await extractFromText(text, provider: .gemini, apiKey: apiKey)
+    }
     let fileData = try Data(contentsOf: url)
     let base64 = fileData.base64EncodedString()
 
@@ -467,66 +836,22 @@ private func extractWithGemini(url: URL, ext: String, apiKey: String) async thro
 
 // MARK: - DeepSeek
 
-private func extractWithDeepSeek(url: URL, ext: String, apiKey: String) async throws -> ExtractedReport {
-    let textContent: String
-
-    if ext == "pdf" {
-        guard let pdfDoc = PDFDocument(url: url) else {
-            throw AIError.unsupportedFormat(
-            T("无法读取这个 PDF 文件。", "This PDF could not be opened.", currentLang()))
-        }
-        var pages: [String] = []
-        for i in 0..<pdfDoc.pageCount {
-            if let page = pdfDoc.page(at: i), let pageText = page.string, !pageText.isEmpty {
-                pages.append(pageText)
-            }
-        }
-        textContent = pages.joined(separator: "\n---\n")
-        if textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw AIError.unsupportedFormat(
-                T("这份 PDF 是扫描件，里面没有可提取的文字。请在设置中改用 Gemini，它可以识别图片。",
-                  "This PDF is a scan with no extractable text. Switch to Gemini in Settings — it can read images.", currentLang()))
-        }
-    } else {
+/// Text-only providers (DeepSeek). Long reports are read in passes.
+private func extractWithTextProvider(url: URL, ext: String, provider: AIProvider,
+                                     apiKey: String) async throws -> ExtractedReport {
+    guard ext == "pdf" else {
         throw AIError.unsupportedFormat(
-            T("DeepSeek 只能读取文字版 PDF，无法识别照片。请在设置中改用 Gemini。",
-              "DeepSeek can only read text PDFs, not photos. Switch to Gemini in Settings.", currentLang()))
+            T("\(provider.displayName) 只能读取文字版 PDF，无法识别照片。请在设置中改用支持图片的服务。",
+              "\(provider.displayName) can only read text PDFs, not photos. Switch to a vision-capable provider in Settings.",
+              currentLang()))
     }
-
-    let prompt = extractionPrompt + "\n\n以下是报告内容：\n\n" + textContent
-
-    let body: [String: Any] = [
-        "model": "deepseek-chat",
-        "messages": [["role": "user", "content": prompt]],
-        // JSON mode guarantees a parseable object; 4096 truncated real physicals
-        // (a 52-item panel already costs ~3000 output tokens).
-        "response_format": ["type": "json_object"],
-        "max_tokens": 8192
-    ]
-
-    var req = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
-    req.httpMethod = "POST"
-    req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-    req.setValue("application/json", forHTTPHeaderField: "content-type")
-    req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-    let (data, response) = try await URLSession.shared.data(for: req)
-    guard let http = response as? HTTPURLResponse else { throw AIError.invalidResponse }
-
-    if http.statusCode != 200 {
-        let errJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let errMsg = (errJson?["error"] as? [String: Any])?["message"] as? String ?? "HTTP \(http.statusCode)"
-        throw AIError.apiError("DeepSeek: \(errMsg)")
+    guard let text = pdfTextIfAvailable(at: url) else {
+        throw AIError.unsupportedFormat(
+            T("这份 PDF 是扫描件，里面没有可提取的文字。请在设置中改用支持图片识别的服务（如通义千问）。",
+              "This PDF is a scan with no extractable text. Switch to a vision-capable provider in Settings (e.g. Qwen).",
+              currentLang()))
     }
-
-    guard
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let choices = json["choices"] as? [[String: Any]],
-        let message = choices.first?["message"] as? [String: Any],
-        let text = message["content"] as? String
-    else { throw AIError.parseError }
-
-    return try parseAIResponse(text)
+    return try await extractFromText(text, provider: provider, apiKey: apiKey)
 }
 
 // MARK: - Parse AI response
@@ -844,6 +1169,9 @@ func generateDoctorSummary(profile: Profile, reports: [MedicalReport], condition
 }
 
 func callGeminiText(prompt: String, provider: AIProvider, apiKey: String) async throws -> String {
+    if provider == .qwen {
+        return try await completeText(prompt: prompt, provider: .qwen, apiKey: apiKey)
+    }
     if provider == .gemini {
         let body: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]]

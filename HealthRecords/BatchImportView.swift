@@ -30,7 +30,7 @@ struct BatchImportView: View {
     }
 
     private var provider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
-    private var apiKey: String { provider == .gemini ? geminiKey : deepseekKey }
+    private var apiKey: String { storedAPIKey(for: provider) }
     private var selectedDrafts: [ReportDraft] { drafts.filter { $0.include } }
 
     var body: some View {
@@ -198,7 +198,16 @@ struct BatchImportView: View {
     /// DeepSeek is text-only. Saying so here beats letting the user spend a
     /// request and get "DeepSeek can't read images" back.
     private var providerCannotReadSelection: Bool {
-        provider == .deepseek && files.contains { $0.pathExtension.lowercased() != "pdf" }
+        !provider.supportsVision && files.contains { $0.pathExtension.lowercased() != "pdf" }
+    }
+
+    /// A vision provider the user has actually set up, preferring one reachable
+    /// from China so we never suggest Gemini to someone who can't reach it.
+    private var visionAlternative: AIProvider? {
+        AIProvider.allCases
+            .filter { $0.supportsVision && !storedAPIKey(for: $0).isEmpty }
+            .sorted { $0.availableInChina && !$1.availableInChina }
+            .first
     }
 
     private var providerWarningCard: some View {
@@ -206,19 +215,17 @@ struct BatchImportView: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text(T("DeepSeek 只能读取文字版 PDF，无法识别照片或扫描件。",
-                       "DeepSeek can only read text PDFs — it cannot read photos or scans.", lang))
+                Text(T("\(provider.displayName) 只能读取文字版 PDF，无法识别照片或扫描件。",
+                       "\(provider.displayName) can only read text PDFs — it cannot read photos or scans.", lang))
                     .font(.caption)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if geminiKey.isEmpty {
-                APIKeyHint(lang: lang)
-            } else {
+            if let alternative = visionAlternative {
                 Button {
-                    providerRaw = AIProvider.gemini.rawValue
+                    providerRaw = alternative.rawValue
                 } label: {
-                    Text(T("切换到 Gemini（可识别照片）", "Switch to Gemini (reads photos)", lang))
+                    Text(T("切换到 \(alternative.displayName)", "Switch to \(alternative.displayName)", lang))
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(10)
@@ -226,6 +233,8 @@ struct BatchImportView: View {
                         .foregroundColor(.blue)
                         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }
+            } else {
+                APIKeyHint(lang: lang)
             }
         }
         .healthCard(padding: 14)

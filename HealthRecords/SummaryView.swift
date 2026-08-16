@@ -31,7 +31,7 @@ struct SummaryView: View {
     @State private var doctorStale = false
 
     private var currentProvider: AIProvider { AIProvider(rawValue: providerRaw) ?? .gemini }
-    private var currentAPIKey: String { currentProvider == .gemini ? geminiKey : deepseekKey }
+    private var currentAPIKey: String { storedAPIKey(for: currentProvider) }
 
     private var useEnglish: Bool { summaryLanguage == "en" }
 

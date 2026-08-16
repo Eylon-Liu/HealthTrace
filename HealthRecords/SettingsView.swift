@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage("gemini_api_key") private var geminiKey = ""
     @AppStorage("deepseek_api_key") private var deepseekKey = ""
     @AppStorage("gemini_model") private var geminiModel = "gemini-3.5-flash"
+    @AppStorage("qwen_api_key") private var qwenKey = ""
+    @AppStorage("qwen_model") private var qwenModel = "qwen-vl-max"
     @AppStorage("summaryLanguage") private var summaryLanguage = "zh"
     @State private var showImport = false
     @State private var exportData: Data?
@@ -59,14 +61,40 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
+                        Image(systemName: "cloud.fill").font(.caption2).foregroundColor(.orange)
+                        Text(T("通义千问 API Key", "Qwen API Key", summaryLanguage))
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    SecureField("sk-...", text: $qwenKey)
+                        .textContentType(.password)
+                        .autocorrectionDisabled()
+
+                    Picker(T("通义千问模型", "Qwen model", summaryLanguage), selection: $qwenModel) {
+                        Text(T("qwen-vl-max（识别最准）", "qwen-vl-max (most accurate)", summaryLanguage))
+                            .tag("qwen-vl-max")
+                        Text(T("qwen-vl-plus（更省）", "qwen-vl-plus (cheaper)", summaryLanguage))
+                            .tag("qwen-vl-plus")
+                    }
+                    .pickerStyle(.menu)
+
+                    Text(T("国内可直接访问，无需梯子。能识别照片和扫描件。\n前往 bailian.console.aliyun.com 获取 API Key。",
+                           "Reachable from mainland China without a VPN. Reads photos and scans.\nGet a key at bailian.console.aliyun.com.",
+                           summaryLanguage))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
                         Image(systemName: "brain.fill").font(.caption2).foregroundColor(.green)
                         Text("DeepSeek API Key").font(.subheadline.weight(.semibold))
                     }
                     SecureField("sk-...", text: $deepseekKey)
                         .textContentType(.password)
                         .autocorrectionDisabled()
-                    Text(T("模型：deepseek-chat，费用最低。\n仅支持文字版 PDF，不支持照片。\n前往 platform.deepseek.com 获取。",
-                           "Uses deepseek-chat, the cheapest option.\nText PDFs only — it cannot read photos.\nGet a key at platform.deepseek.com.",
+                    Text(T("模型：deepseek-chat，费用最低。\n只能读取文字版 PDF，无法识别照片或扫描件。\n前往 platform.deepseek.com 获取。",
+                           "Uses deepseek-chat, the cheapest option.\nText PDFs only — it cannot read photos or scans.\nGet a key at platform.deepseek.com.",
                            summaryLanguage))
                         .font(.caption2)
                         .foregroundColor(.secondary)
